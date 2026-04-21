@@ -1,0 +1,14 @@
+{
+  "name": "sdg-connection-test-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-dependency Node.js client for the SDG Connection Test. Probes TCP/UDP ports used by Space Engineers, Torch, and Steam against an SDG-operated diagnostic server.",
+  "main": "client.js",
+  "scripts": {
+    "start": "node client.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
