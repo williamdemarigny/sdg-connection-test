@@ -44,7 +44,7 @@ const PORTS = Object.freeze([
   { proto: 'tcp', port: 27443, category: 'baseline', purpose: 'TCP baseline (generic high port)' },
   { proto: 'tcp', port: 27080, category: 'baseline', purpose: 'TCP baseline (generic high port)' },
   { proto: 'udp', port: 27443, category: 'baseline', purpose: 'UDP baseline (generic high port)' },
-]);
+].map(Object.freeze));
 
 // The one port we use for the "game-shape sustained" test. Picked because it
 // is also the primary SE game port, so the traffic shape and port match what

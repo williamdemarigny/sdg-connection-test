@@ -217,7 +217,7 @@ the conflict is real and operational.
 - **Same host, same IP** is only safe during a scheduled maintenance
   window when Torch is stopped. This is rarely what you want.
 
-See [DEPLOY-TRUENAS.md](./DEPLOY-TRUENAS.md) for step-by-step.
+See [DEPLOY.md](./DEPLOY.md) for step-by-step.
 
 ## What we explicitly did not do (and why)
 
