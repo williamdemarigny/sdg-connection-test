@@ -32,7 +32,7 @@ SDG-Connection-Test/
   client/                  Zero-dep Node.js client + privacy-first README
   docs/PROTOCOL.md         byte-level wire protocol reference
   docs/TRANSPARENCY.md     for security-conscious players
-  docs/DEPLOY-TRUENAS.md   TrueNAS SCALE deployment walkthrough
+  docs/DEPLOY.md           Ubuntu-VM deployment walkthrough (TrueNAS as alternate)
 ```
 
 ## Running locally
@@ -52,9 +52,16 @@ changes.
 
 ## Deploying
 
-See [`docs/DEPLOY-TRUENAS.md`](docs/DEPLOY-TRUENAS.md). Short version:
-build with `docker compose build` in `server/`, then install as a
-TrueNAS Custom App with the included compose file.
+See [`docs/DEPLOY.md`](docs/DEPLOY.md). Short version: provision a
+small Ubuntu Server 24.04 LTS VM (1 vCPU / 2 GB / 8 GB / one NIC on
+your DMZ VLAN), install Docker, `docker compose build` in `server/`,
+then `docker compose up -d`. The walkthrough covers VM specs and
+sizing rationale, the Subiquity install, netplan static-IP setup,
+host hardening, the upstream firewall matrix, and operational
+concerns (uptime monitoring, log archival, port-matrix maintenance,
+disk-full posture). A TrueNAS Custom App deployment is preserved as
+the alternate path in §17 of the same doc, but is only appropriate
+for a single-homed TrueNAS host.
 
 ## Auditing the client
 

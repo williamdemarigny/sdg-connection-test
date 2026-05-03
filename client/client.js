@@ -55,12 +55,18 @@ const { performance } = require('perf_hooks');
 
 const { PORTS, GAME_SHAPE_PORT, A2S_PORT } = require('../shared/ports');
 const protocol = require('../shared/protocol');
+const { dgramTypeFor } = require('../shared/netUtils');
 
 // ---- Tunables. Nothing here should need changing during normal runs. ----
 const PROBE_TIMEOUT_MS   = 2000;
 const LOSS_PACKET_COUNT  = 50;
 const LOSS_INTERVAL_MS   = 100;      // 10 pps
-const MTU_PAYLOAD_BYTES  = 1400;
+// MTU sweep — three payload sizes that bracket the typical sub-tunnel MTU.
+// 1200 should succeed everywhere. 1400 is the customary "safe" UDP MTU
+// after carrier overhead. 1472 = 1500 - 20B IPv4 - 8B UDP, the max that
+// fits in a 1500-byte ethernet frame. T-Mobile is documented to silently
+// drop UDP above ~1400; the sweep makes that stair-step visible.
+const MTU_SWEEP_BYTES    = Object.freeze([1200, 1400, 1472]);
 const SUSTAINED_MS       = 10_000;   // game-shape test duration
 const SUSTAINED_PPS      = 60;       // expected server rate; used only for
                                      // reporting, not for sending.
@@ -77,6 +83,7 @@ function parseArgs(argv) {
     json: null,
     yes: false,
     duration: SUSTAINED_MS,
+    family: 0,                // 0 = OS-default (auto), 4 = force IPv4, 6 = force IPv6
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -89,6 +96,13 @@ function parseArgs(argv) {
     else if (a === '--json')        out.json = argv[++i];
     else if (a === '--yes' || a === '-y') out.yes = true;
     else if (a === '--duration')    out.duration = Number(argv[++i]) * 1000;
+    else if (a === '--family') {
+      const f = argv[++i];
+      if (f === '4' || f === 'ipv4')      out.family = 4;
+      else if (f === '6' || f === 'ipv6') out.family = 6;
+      else if (f === 'auto' || f === '0') out.family = 0;
+      else { console.error(`--family must be 4, 6, or auto (got "${f}")`); out.help = true; }
+    }
     else if (a === '--help' || a === '-h') out.help = true;
     else { console.error(`Unknown argument: ${a}`); out.help = true; }
   }
@@ -113,6 +127,13 @@ Options:
                            (for side-by-side comparison). Example:
                              --real-server torch.example.com:27015
   --duration <seconds>     Override the sustained test duration (default 10).
+  --family <4|6|auto>      Force IPv4 ('4'), IPv6 ('6'), or let the OS pick
+                           ('auto', the default). Use '4' on a v6-native
+                           network (e.g. T-Mobile 5G Home Internet w/ 464XLAT)
+                           if you suspect Happy-Eyeballs is masking the
+                           problem. The SDG test server is currently v4-only;
+                           '6' will only succeed against AAAA-publishing
+                           servers.
   --json <file>            Write a full JSON report to <file>.
   --yes, -y                Skip the confirmation prompt.
   --help, -h               Show this help.
@@ -156,11 +177,20 @@ function confirm(question) {
 }
 
 // ---- DNS resolution. Only --host and optionally --real-server are ever resolved. ----
-async function resolveHost(host) {
-  // Accept a raw IP without a DNS call.
-  if (net.isIP(host)) return host;
-  const addrs = await dns.lookup(host, { family: 4 });
-  return addrs.address;
+//
+// Returns { address, family }, where family is 4 or 6. Pass family=0 to let
+// the OS pick (Happy Eyeballs-ish behavior); pass 4 or 6 to force.
+async function resolveHost(host, family = 0) {
+  // Accept a raw IP without a DNS call. net.isIP returns 4, 6, or 0.
+  const lit = net.isIP(host);
+  if (lit) {
+    if (family && lit !== family) {
+      throw new Error(`--family ${family} but ${host} is a literal IPv${lit} address`);
+    }
+    return { address: host, family: lit };
+  }
+  const addrs = await dns.lookup(host, { family });
+  return { address: addrs.address, family: addrs.family };
 }
 
 // ================================================================
@@ -172,9 +202,9 @@ async function resolveHost(host) {
 //   { ok: true,  rtt: <ms> }                    success
 //   { ok: false, rtt: null, rateLimited: true } server told us we're rate limited
 //   { ok: false, rtt: null, rateLimited: false } timeout (real loss)
-function udpProbe({ host, port, nonce, sequence, payloadSize = protocol.HEADER_SIZE }) {
+function udpProbe({ host, port, nonce, sequence, family = 4, payloadSize = protocol.HEADER_SIZE }) {
   return new Promise((resolve) => {
-    const sock = dgram.createSocket('udp4');
+    const sock = dgram.createSocket(dgramTypeFor(family));
     let done = false;
     const finish = (result) => {
       if (done) return;
@@ -215,11 +245,11 @@ function udpProbe({ host, port, nonce, sequence, payloadSize = protocol.HEADER_S
 // compute latency stats. Also counts RATE_LIMITED server replies so the
 // caller can distinguish "my ISP dropped these" from "the SDG server
 // told me I'm over quota".
-async function udpLossTest({ host, port, nonce }) {
+async function udpLossTest({ host, port, nonce, family = 4 }) {
   const rtts = [];
   let received = 0;
   let rateLimited = 0;
-  const sock = dgram.createSocket('udp4');
+  const sock = dgram.createSocket(dgramTypeFor(family));
   const pending = new Map();   // seq -> sendMs
 
   sock.on('message', (msg) => {
@@ -325,7 +355,7 @@ function tcpProbe({ host, port, nonce, sequence }) {
 //
 // We parse step 4 into a small info object and return total RTT (step 1
 // send to step 4 receive).
-function a2sQuery({ host, port }) {
+function a2sQuery({ host, port, family = 4 }) {
   return new Promise((resolve) => {
     const requestBase = Buffer.from([
       0xff, 0xff, 0xff, 0xff, 0x54,
@@ -333,7 +363,7 @@ function a2sQuery({ host, port }) {
       0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x20,
       0x51, 0x75, 0x65, 0x72, 0x79, 0x00,
     ]);
-    const sock = dgram.createSocket('udp4');
+    const sock = dgram.createSocket(dgramTypeFor(family));
     const start = nowMs();
     let done = false;
     const finish = (result) => {
@@ -405,9 +435,9 @@ function a2sQuery({ host, port }) {
 //   3. Send STREAM_CONFIRM with the token echoed back.
 //   4. Server emits STREAM_DATA for ~durationMs ms.
 //   5. Send STREAM_STOP and close.
-function sustainedTest({ host, port, nonce, durationMs }) {
+function sustainedTest({ host, port, nonce, durationMs, family = 4 }) {
   return new Promise((resolve) => {
-    const sock = dgram.createSocket('udp4');
+    const sock = dgram.createSocket(dgramTypeFor(family));
     let received = 0;
     let firstArrivalMs = null;
     let lastArrivalMs = null;
@@ -545,10 +575,10 @@ function fmt(n) {
 
 async function runTests(opts) {
   const host = opts.host;
-  const resolved = await resolveHost(host);
+  const { address: resolved, family } = await resolveHost(host, opts.family || 0);
   const nonce = randomNonce();
   console.log(`Session nonce: ${toHex(nonce)}`);
-  console.log(`Resolved ${host} -> ${resolved}`);
+  console.log(`Resolved ${host} -> ${resolved} (IPv${family})`);
   console.log('');
 
   const portsToTest = filterPorts(PORTS, opts.ports);
@@ -557,7 +587,7 @@ async function runTests(opts) {
     version: 1,
     tool: 'sdg-connection-test client',
     startedAt: new Date().toISOString(),
-    host, resolved,
+    host, resolved, family,
     nonceHex: toHex(nonce),
     perPort: [],
     a2s: null,
@@ -581,18 +611,27 @@ async function runTests(opts) {
 
     try {
       if (p.proto === 'udp') {
-        const first = await udpProbe({ host: resolved, port: p.port, nonce, sequence: 0 });
+        const first = await udpProbe({ host: resolved, port: p.port, nonce, sequence: 0, family });
         row.reachable = first.ok;
         row.firstRttMs = first.rtt;
         row.rateLimited = first.rateLimited;
         if (row.reachable) {
-          row.loss = await udpLossTest({ host: resolved, port: p.port, nonce });
+          row.loss = await udpLossTest({ host: resolved, port: p.port, nonce, family });
           if (row.loss.rateLimited > 0) row.rateLimited = true;
-          const mtuRes = await udpProbe({
-            host: resolved, port: p.port, nonce, sequence: 9999,
-            payloadSize: MTU_PAYLOAD_BYTES,
-          });
-          row.mtu = { size: MTU_PAYLOAD_BYTES, ok: mtuRes.ok, rtt: mtuRes.rtt };
+          row.mtuSweep = [];
+          for (let i = 0; i < MTU_SWEEP_BYTES.length; i++) {
+            const size = MTU_SWEEP_BYTES[i];
+            const res = await udpProbe({
+              host: resolved, port: p.port, nonce, sequence: 9000 + i,
+              family, payloadSize: size,
+            });
+            row.mtuSweep.push({ size, ok: res.ok, rtt: res.rtt });
+          }
+          // Backwards-compatible single field: the largest size that worked,
+          // or the smallest probe's result if none worked. Consumers that
+          // only knew about `mtu` (an object with size/ok/rtt) keep working.
+          const lastOk = [...row.mtuSweep].reverse().find(s => s.ok) || row.mtuSweep[0];
+          row.mtu = lastOk;
         }
       } else {
         const r = await tcpProbe({ host: resolved, port: p.port, nonce, sequence: 0 });
@@ -616,7 +655,7 @@ async function runTests(opts) {
   if (opts.a2s) {
     console.log('');
     process.stdout.write(`  Steam A2S_INFO query udp ${A2S_PORT} ... `);
-    report.a2s = await a2sQuery({ host: resolved, port: A2S_PORT });
+    report.a2s = await a2sQuery({ host: resolved, port: A2S_PORT, family });
     console.log(report.a2s.ok ? `OK (${report.a2s.info.name})` : `FAIL (${report.a2s.reason})`);
   }
 
@@ -625,7 +664,7 @@ async function runTests(opts) {
     console.log(`  Game-shape sustained test udp ${GAME_SHAPE_PORT} for ${Math.round(opts.duration/1000)}s ...`);
     report.sustained = await sustainedTest({
       host: resolved, port: GAME_SHAPE_PORT, nonce,
-      durationMs: opts.duration,
+      durationMs: opts.duration, family,
     });
     const s = report.sustained;
     console.log(`    received ${s.received}/${s.expected}  loss ${fmt(s.lossPct)}%  max gap ${fmt(s.maxGapMs)}ms${s.exceeded250ms ? '  [THROTTLING SIGNAL]' : ''}`);
@@ -635,8 +674,9 @@ async function runTests(opts) {
     const [rh, rp] = opts.realServer.split(':');
     console.log('');
     process.stdout.write(`  Real-server A2S_INFO ${rh}:${rp} ... `);
-    const real = await a2sQuery({ host: await resolveHost(rh), port: Number(rp) });
-    report.realServerA2S = { host: rh, port: Number(rp), ...real };
+    const realResolved = await resolveHost(rh, opts.family || 0);
+    const real = await a2sQuery({ host: realResolved.address, port: Number(rp), family: realResolved.family });
+    report.realServerA2S = { host: rh, port: Number(rp), family: realResolved.family, ...real };
     console.log(real.ok ? `OK (${real.info.name})` : `FAIL (${real.reason})`);
   }
 
@@ -650,7 +690,7 @@ function printTable(report) {
   console.log('================================================================');
   console.log('RESULTS');
   console.log('================================================================');
-  const header = 'proto  port   cat       reach  rtt(ms)  loss%   mtu1400  purpose';
+  const header = 'proto  port   cat       reach  rtt(ms)  loss%   mtu      purpose';
   console.log(header);
   console.log('-'.repeat(header.length + 10));
   for (const r of report.perPort) {
@@ -661,9 +701,16 @@ function printTable(report) {
     else                               reach = 'FAIL';
     const rtt = r.loss && r.loss.latency.avg != null ? fmt(r.loss.latency.avg) : fmt(r.firstRttMs);
     const loss = r.loss ? fmt(r.loss.lossPct) : '  —  ';
-    const mtu  = r.mtu ? (r.mtu.ok ? 'OK ' : 'FAIL') : ' — ';
+    // Show the largest MTU size that succeeded, or — if none did — FAIL.
+    let mtu = ' — ';
+    if (r.mtuSweep && r.mtuSweep.length) {
+      const lastOk = [...r.mtuSweep].reverse().find(s => s.ok);
+      mtu = lastOk ? `${lastOk.size}` : 'FAIL';
+    } else if (r.mtu) {
+      mtu = r.mtu.ok ? `${r.mtu.size}` : 'FAIL';
+    }
     console.log(
-      `${r.proto.padEnd(5)}  ${String(r.port).padEnd(5)}  ${(r.category || '').padEnd(8)}  ${reach}   ${rtt.padStart(6)}  ${loss.padStart(5)}   ${mtu.padEnd(6)}  ${r.purpose}`
+      `${r.proto.padEnd(5)}  ${String(r.port).padEnd(5)}  ${(r.category || '').padEnd(8)}  ${reach}   ${rtt.padStart(6)}  ${loss.padStart(5)}   ${mtu.padEnd(7)}  ${r.purpose}`
     );
   }
   if (report.perPort.some((r) => r.rateLimited)) {
@@ -697,6 +744,7 @@ async function main() {
   console.log('SDG Connection Test — client');
   console.log('----------------------------');
   console.log(`Target host : ${opts.host}`);
+  console.log(`Address fam : ${opts.family === 0 ? 'auto (OS default)' : 'IPv' + opts.family}`);
   console.log(`Ports       : ${opts.ports ? opts.ports.join(',') : 'all (' + PORTS.length + ' from shared/ports.js)'}`);
   console.log(`A2S query   : ${opts.a2s ? 'yes' : 'no'}`);
   console.log(`Sustained   : ${opts.sustained ? Math.round(opts.duration/1000) + 's on udp ' + GAME_SHAPE_PORT : 'no'}`);
@@ -723,7 +771,11 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error('Fatal:', e.message);
-  process.exit(2);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('Fatal:', e.message);
+    process.exit(2);
+  });
+}
+
+module.exports = { parseArgs, stats, filterPorts, fmt };
