@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDG Connection Test</title>
+  <meta name="description" content="A small, auditable diagnostic for proving or disproving whether a specific ISP is blocking or throttling the UDP traffic that Space Engineers, Torch, and Steam depend on.">
+  <style>
+    :root {
+      --bg: #0e1116;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --card: #161b22;
+      --border: #30363d;
+      --code-bg: #1b2129;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --accent: #0969da;
+        --accent-hover: #0550ae;
+        --card: #f6f8fa;
+        --border: #d0d7de;
+        --code-bg: #f6f8fa;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0 0 0.25em;
+      letter-spacing: -0.02em;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 1.1rem;
+      margin: 0 0 2.5em;
+    }
+    h2 {
+      font-size: 1.25rem;
+      margin: 2em 0 0.75em;
+      padding-top: 0.5em;
+      border-top: 1px solid var(--border);
+    }
+    h2:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+    p { margin: 0.75em 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); text-decoration: underline; }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.9em;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 16px;
+      overflow-x: auto;
+      line-height: 1.45;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      border: none;
+    }
+    .download-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 1.5em 0;
+    }
+    .download-button {
+      display: inline-block;
+      background: var(--accent);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .download-button:hover {
+      background: var(--accent-hover);
+      color: white;
+      text-decoration: none;
+    }
+    .checksum {
+      color: var(--muted);
+      font-size: 0.85em;
+      margin-top: 1em;
+      word-break: break-all;
+    }
+    ol li, ul li { margin: 0.4em 0; }
+    .footer {
+      color: var(--muted);
+      font-size: 0.85em;
+      margin-top: 3em;
+      padding-top: 1.5em;
+      border-top: 1px solid var(--border);
+    }
+    .footer a { color: var(--muted); text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SDG Connection Test</h1>
+    <p class="tagline">A small, auditable diagnostic for proving or disproving whether a specific ISP is blocking or throttling the UDP traffic that Space Engineers, Torch, and Steam depend on.</p>
+
+    <div class="download-card">
+      <a class="download-button" href="https://github.com/williamdemarigny/sdg-connection-test/releases/latest">Download the latest release</a>
+      <p class="checksum">Latest: <strong>v1.0.0</strong> — SHA256 published on the release page.</p>
+    </div>
+
+    <h2>How to run it</h2>
+    <ol>
+      <li>Install <a href="https://nodejs.org/en/download">Node.js 20 or later</a> (LTS is fine).</li>
+      <li>Download the release zip above and unzip it.</li>
+      <li>Open a terminal (PowerShell, cmd, or bash) in the unzipped folder.</li>
+      <li>Run, substituting the host SDG gave you:
+        <pre><code>node client/client.js --host &lt;server-given-by-SDG&gt;</code></pre>
+      </li>
+      <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, wait ~90 seconds.</li>
+      <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back.</li>
+    </ol>
+
+    <h2>What it does</h2>
+    <p>The client probes every TCP and UDP port that Space Engineers, Torch, and Steam actually use, measures reachability / loss / latency / MTU on each, and runs a 10-second sustained UDP traffic test that mimics real game traffic. Results print to the console and, on request, to a JSON file.</p>
+    <p>It does <strong>not</strong> read your files, environment variables, browsing history, Steam install, or anything else off your machine. It only sends the test packets to the host you pass on the command line.</p>
+
+    <h2>Why you can trust it</h2>
+    <p>The client is a single ~500-line JavaScript file with zero runtime dependencies and is deliberately written to be skimmable in ten minutes. Three layers of audit:</p>
+    <ul>
+      <li><strong>Read the source</strong> &mdash; <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/client/client.js">client/client.js</a> on GitHub. The <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/TRANSPARENCY.md">transparency notes</a> walk through what to <code>grep</code> for and what each match means.</li>
+      <li><strong>Watch the packets</strong> &mdash; run with Wireshark capturing on your active NIC. Every outbound packet has the same 8-byte session nonce printed at startup, so you can filter by it. Every packet matches one of the layouts in the <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/PROTOCOL.md">protocol spec</a>.</li>
+      <li><strong>Run it in a sandbox</strong> &mdash; Windows Sandbox, a throwaway VM, or a Docker <code>node:20-alpine</code> container all work.</li>
+    </ul>
+
+    <h2>What the server logs</h2>
+    <p>The operator-deployed server records minimal session metadata for diagnostic correlation: source IP, source ASN/ISP, a client-generated nonce (printed at client startup so you can correlate captures), per-port packet counts, and rate-limit counters. Logs are capped at ~100 MB total on disk, never shipped off-host, and never correlated with Steam or in-game identity. Full detail in the <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/PRIVACY.md">privacy notice</a>.</p>
+
+    <h2>Source &amp; license</h2>
+    <p>MIT-licensed. The client and shared protocol code live at <a href="https://github.com/williamdemarigny/sdg-connection-test">github.com/williamdemarigny/sdg-connection-test</a>. The server implementation is operator-internal; the security model and behavioral guarantees are spelled out in <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/SECURITY.md">SECURITY.md</a>.</p>
+
+    <p class="footer">
+      Built by SDG. Hosted at <a href="https://sdg.knowledgeondemand.net">sdg.knowledgeondemand.net</a>.
+      Source: <a href="https://github.com/williamdemarigny/sdg-connection-test">github.com/williamdemarigny/sdg-connection-test</a>.
+    </p>
+  </div>
+</body>
+</html>
