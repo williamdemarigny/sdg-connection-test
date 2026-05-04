@@ -16,6 +16,12 @@ guaranteed.
 
 ## [Unreleased]
 
+(no changes since v1.0.0)
+
+## [1.0.0] — 2026-05-04
+
+First public release.
+
 ### Added
 - Client `--family <4|6|auto>` flag. Default is `auto` (whatever the
   OS resolver picks). Use `4` to force IPv4 against the SDG test
@@ -110,19 +116,23 @@ guaranteed.
 - (none — first release)
 
 ### Security
-- `server/server.js` now applies `normalizeIp()` to `rinfo.address`
-  before keying the per-IP rate limiter, the ASN lookup, and the
-  session log. With a v4-only deployment this is a no-op; it
-  prevents a future dual-stack deployment from having the same
-  client occupy two distinct rate-limit buckets depending on
-  whether a packet arrived as v4 or as v4-mapped v6.
+- Server applies `normalizeIp()` to incoming source addresses before
+  keying the per-IP rate limiter, the ASN lookup, and the session
+  log. With a v4-only deployment this is a no-op; it prevents a
+  future dual-stack deployment from having the same client occupy
+  two distinct rate-limit buckets depending on whether a packet
+  arrived as v4 or as v4-mapped v6.
+- Defensive hardening from a security review of the client:
+  - `--real-server` now uses a strict host:port parser that supports
+    bracketed IPv6 forms (e.g. `[2001:db8::1]:27015`) and rejects
+    ambiguous unbracketed IPv6, missing port, non-numeric port, and
+    out-of-range ports with specific error messages — replacing a
+    naive `String.split(':')` that shattered on IPv6 literals and
+    silently turned a missing port into NaN.
+  - `--duration` is capped at 300 seconds. The sustained-test's
+    sequence-number deduplication set previously grew without bound
+    under absurd `--duration` values; the cap is well above any
+    legitimate diagnostic use.
 
----
-
-## [1.0.0] — pending
-
-This will be the first tagged release once Workstream B (field-test
-deployment + 30-trial campaign + sanitized FIELD-RESULTS.md commit)
-completes. Until then, all the above lives under "Unreleased."
-
-[Unreleased]: https://github.com/williamdemarigny/sdg-connection-test
+[Unreleased]: https://github.com/williamdemarigny/sdg-connection-test/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/williamdemarigny/sdg-connection-test/releases/tag/v1.0.0
