@@ -95,7 +95,20 @@ function parseArgs(argv) {
     else if (a === '--real-server') out.realServer = argv[++i];
     else if (a === '--json')        out.json = argv[++i];
     else if (a === '--yes' || a === '-y') out.yes = true;
-    else if (a === '--duration')    out.duration = Number(argv[++i]) * 1000;
+    else if (a === '--duration')    {
+      const sec = Number(argv[++i]);
+      // Cap at 5 minutes. The default is 10 s; longer runs accumulate
+      // sequence numbers in seenSeqs without bound. 300 s @ 60 pps =
+      // 18000 entries, ~150 KB — well within reason. Beyond that the
+      // test isn't really diagnostic anyway.
+      if (!Number.isFinite(sec) || sec <= 0) {
+        console.error(`--duration must be a positive number (got "${argv[i]}")`); out.help = true;
+      } else if (sec > 300) {
+        console.error(`--duration capped at 300 seconds (got ${sec})`); out.help = true;
+      } else {
+        out.duration = sec * 1000;
+      }
+    }
     else if (a === '--family') {
       const f = argv[++i];
       if (f === '4' || f === 'ipv4')      out.family = 4;
@@ -151,6 +164,45 @@ function randomNonce() { return crypto.randomBytes(8); }
 function nowNs()       { return process.hrtime.bigint(); }
 function nowMs()       { return performance.now(); }
 function toHex(buf)    { return buf.toString('hex'); }
+
+// Parse "host:port" robustly — handles bare IPv4/hostname plus the
+// bracketed IPv6 form "[2001:db8::1]:27015". A naive split(':') would
+// shatter an IPv6 literal across multiple colons, and a missing port
+// would yield NaN that surfaces only as a confusing socket error.
+function parseHostPort(s) {
+  if (typeof s !== 'string' || s.length === 0) {
+    throw new Error('host:port required');
+  }
+  // Accept any port string in the bracket form so we can give a specific
+  // "invalid port" error rather than falling through to the ambiguous-IPv6
+  // branch, which would produce a misleading message.
+  const bracket = s.match(/^\[(.+)\]:(.+)$/);
+  if (bracket) {
+    const port = Number(bracket[2]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`invalid port "${bracket[2]}" in "${s}"`);
+    }
+    return { host: bracket[1], port };
+  }
+  const lastColon = s.lastIndexOf(':');
+  if (lastColon < 0) {
+    throw new Error(`missing :port in "${s}" (use host:port, or [ipv6]:port)`);
+  }
+  // Reject pre-port colons that would indicate a bare IPv6 without
+  // brackets — ambiguous form. e.g. "::1:80" could be addr=::1 port=80
+  // or addr=::1:80 with no port.
+  if (s.indexOf(':') !== lastColon) {
+    throw new Error(`ambiguous IPv6 form "${s}"; wrap as [ipv6]:port`);
+  }
+  const host = s.slice(0, lastColon);
+  const portStr = s.slice(lastColon + 1);
+  const port = Number(portStr);
+  if (host.length === 0) throw new Error(`empty host in "${s}"`);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid port "${portStr}" in "${s}"`);
+  }
+  return { host, port };
+}
 
 function stats(samples) {
   if (samples.length === 0) return { n: 0, min: null, avg: null, p95: null, max: null, stddev: null };
@@ -671,13 +723,21 @@ async function runTests(opts) {
   }
 
   if (opts.realServer) {
-    const [rh, rp] = opts.realServer.split(':');
-    console.log('');
-    process.stdout.write(`  Real-server A2S_INFO ${rh}:${rp} ... `);
-    const realResolved = await resolveHost(rh, opts.family || 0);
-    const real = await a2sQuery({ host: realResolved.address, port: Number(rp), family: realResolved.family });
-    report.realServerA2S = { host: rh, port: Number(rp), family: realResolved.family, ...real };
-    console.log(real.ok ? `OK (${real.info.name})` : `FAIL (${real.reason})`);
+    let rs;
+    try {
+      rs = parseHostPort(opts.realServer);
+    } catch (e) {
+      console.error(`  --real-server: ${e.message}`);
+      report.realServerA2S = { ok: false, reason: `parse-error: ${e.message}` };
+    }
+    if (rs) {
+      console.log('');
+      process.stdout.write(`  Real-server A2S_INFO ${rs.host}:${rs.port} ... `);
+      const realResolved = await resolveHost(rs.host, opts.family || 0);
+      const real = await a2sQuery({ host: realResolved.address, port: rs.port, family: realResolved.family });
+      report.realServerA2S = { host: rs.host, port: rs.port, family: realResolved.family, ...real };
+      console.log(real.ok ? `OK (${real.info.name})` : `FAIL (${real.reason})`);
+    }
   }
 
   report.finishedAt = new Date().toISOString();
@@ -778,4 +838,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseArgs, stats, filterPorts, fmt };
+module.exports = { parseArgs, stats, filterPorts, fmt, parseHostPort };

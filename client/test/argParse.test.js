@@ -108,3 +108,33 @@ test('order independence: --host first vs last is the same', () => {
   const b = parseArgs(['--yes', '--host', 'x']);
   assert.deepEqual(a, b);
 });
+
+// --duration accepts up to 300 s; longer runs are rejected because the
+// client accumulates sequence numbers in a per-test Set and absurd
+// durations grow that without bound. 300 s × 60 pps = 18000 entries —
+// well under any reasonable resource concern.
+test('--duration accepts a positive value at the cap', mute(() => {
+  const o = parseArgs(['--duration', '300']);
+  assert.equal(o.duration, 300_000);
+  assert.equal(o.help, false);
+}));
+
+test('--duration rejects values over the 300 s cap', mute(() => {
+  const o = parseArgs(['--duration', '600']);
+  assert.equal(o.help, true, 'over-cap duration sets help=true so usage prints');
+}));
+
+test('--duration rejects zero', mute(() => {
+  const o = parseArgs(['--duration', '0']);
+  assert.equal(o.help, true);
+}));
+
+test('--duration rejects negative', mute(() => {
+  const o = parseArgs(['--duration', '-5']);
+  assert.equal(o.help, true);
+}));
+
+test('--duration rejects non-numeric', mute(() => {
+  const o = parseArgs(['--duration', 'forever']);
+  assert.equal(o.help, true);
+}));
