@@ -109,7 +109,15 @@ ever completed a real SteamNetworkingSockets handshake.
 
 ## Anything we missed?
 
-If you find something in the client or server code that looks wrong,
-misleading, or nefarious, please tell us. The whole point of this tool is
+If you find something in the client code that looks wrong, misleading,
+or nefarious, please tell us. The whole point of this tool is
 transparency, and a tool that cannot be audited honestly is worse than no
 tool at all.
+
+The server source is operator-internal — what the server is permitted to
+do is bounded by the protocol in [PROTOCOL.md](./PROTOCOL.md) and the
+defenses described in [SECURITY.md](./SECURITY.md). Nothing the server
+sends back can affect your machine beyond the response packets to probes
+the client itself sent. The client is the only side of this conversation
+running in your environment, and that is the side we encourage you to
+audit.
