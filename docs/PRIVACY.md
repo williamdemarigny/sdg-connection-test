@@ -14,9 +14,8 @@ you should read this document.
 
 ## What is collected
 
-The server's session log
-([`server/sessionLog.js`](../server/sessionLog.js)) records one JSON line
-per logical "session" — a tuple of (source IP, client-generated nonce). A
+The server's session log records one JSON line per logical "session" —
+a tuple of (source IP, client-generated nonce). A
 new session begins when a client emits a previously-unseen nonce; an
 existing session is updated when packets continue arriving with the same
 (IP, nonce) pair. Each line contains:
@@ -46,9 +45,8 @@ The server does **not** collect:
   third-party identifier
 - Any data from clients that did not connect (no scanning, no probing)
 
-The ASN/ISP lookup is performed offline against a small bundled file
-([`server/data/ip-to-asn.tsv`](../server/data/ip-to-asn.tsv)). No
-network request is made during lookup.
+The ASN/ISP lookup is performed offline against a small bundled ASN
+table on the server. No network request is made during lookup.
 
 ## How long it is retained
 
@@ -67,10 +65,9 @@ shipping, and no long-term store.
 
 For deployments expecting heavy traffic, the operator should either
 increase the rotation cap or — preferably — wire up a host-side cron that
-archives `sessions.log.old` before the next rotation overwrites it. See
-[`docs/DEPLOY.md`](DEPLOY.md) §14 for an example. Any such
-archival is the operator's responsibility and is OUTSIDE the scope of
-this notice.
+archives `sessions.log.old` before the next rotation overwrites it. Any
+such archival is the operator's responsibility and is OUTSIDE the scope
+of this notice.
 
 ## How it is used
 

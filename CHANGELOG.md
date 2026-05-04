@@ -41,37 +41,35 @@ guaranteed.
   using only `node:test` and `node:assert/strict`. Includes a
   full client-server integration test that spins up the server on
   ephemeral ports and exercises the protocol end-to-end.
-- GitHub Actions CI:
-  [`.github/workflows/sdg-connection-test-ci.yml`](../.github/workflows/sdg-connection-test-ci.yml)
-  with three jobs — `test` (Node 20 + 22), `docker-build`, and
-  `zero-dep-guard`. The guard enforces no npm dependencies, no
+- CI (operator-internal): `test` (Node 20 + 22), `docker-build`, and
+  `zero-dep-guard` jobs. The guard enforces no npm dependencies, no
   imports outside Node built-ins / `./*` / `../shared/*`, and that
-  `client/` stays a single non-test JS file.
+  `client/` stays a single non-test JS file. The same enforcement is
+  applied to the public `client/` and `shared/` trees by maintainers
+  on PR review.
 - [`LICENSE`](LICENSE) (MIT).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — acceptable use, the
   zero-dep rule, repo layout, and the port-addition recipe.
 - [`docs/PRIVACY.md`](docs/PRIVACY.md) — what the session log
   collects, the 50 MB / two-generation retention ceiling, GDPR
   posture, operator responsibilities.
-- [`docs/FIELD-TEST-PROTOCOL.md`](docs/FIELD-TEST-PROTOCOL.md) —
-  the methodology for the carrier-comparison field test (5 trials
-  per carrier × 3 time windows × negative-control target ×
-  traceroute capture × server-side correlation × MTU sweep).
+- `docs/FIELD-TEST-PROTOCOL.md` (operator-internal) — the methodology
+  for the carrier-comparison field test (5 trials per carrier × 3 time
+  windows × negative-control target × traceroute capture × server-side
+  correlation × MTU sweep).
 
 ### Changed
-- Deployment doc renamed `docs/DEPLOY-TRUENAS.md` →
-  [`docs/DEPLOY.md`](docs/DEPLOY.md) and restructured. The recommended
+- Deployment doc restructured (operator-internal). The recommended
   path is now a dedicated single-homed **Ubuntu Server 24.04 LTS** VM
   in the DMZ (24.04.3 or newer), provisioned manually with whichever
-  hypervisor tooling fits your workflow. TrueNAS SCALE Custom App is
-  preserved as an alternate in §17 for single-homed TrueNAS hosts.
-  This pivot avoids the asymmetric-routing trap on multi-homed
-  TrueNAS hosts (Linux routes egress by destination, not by inbound
-  interface; a host-networked container on a multi-homed host
-  silently sends replies out the wrong NIC). VM specs: 1 vCPU /
-  2 GB RAM (1 GB minimum) / 8 GB disk / single NIC on the DMZ VLAN.
-  The 2 GB recommendation reflects the install + steady-state + load
-  budget — 512 MB is over-budget at idle once Docker daemon and the
+  hypervisor tooling fits your workflow. This avoids the
+  asymmetric-routing trap on multi-homed hosts (Linux routes egress by
+  destination, not by inbound interface; a host-networked container
+  on a multi-homed host silently sends replies out the wrong NIC).
+  VM specs: 1 vCPU / 2 GB RAM (1 GB minimum) / 8 GB disk / single NIC
+  on the DMZ VLAN. The 2 GB recommendation reflects the install +
+  steady-state + load budget — 512 MB is over-budget at idle once
+  Docker daemon and the
   256 MB-capped container are added.
   Earlier draft revisions documented Hyper-V provisioning via the
   `taliesins/hyperv` Terraform provider; that snippet was removed in
@@ -127,4 +125,4 @@ This will be the first tagged release once Workstream B (field-test
 deployment + 30-trial campaign + sanitized FIELD-RESULTS.md commit)
 completes. Until then, all the above lives under "Unreleased."
 
-[Unreleased]: https://github.com/sdg-servers/SDG-DevOps/tree/main/SDG-Connection-Test
+[Unreleased]: https://github.com/williamdemarigny/sdg-connection-test
