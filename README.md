@@ -45,6 +45,12 @@ docs/PRIVACY.md          what the operator-deployed server may log
 docs/TRANSPARENCY.md     for security-conscious players
 ```
 
+## Download
+
+Customer-facing download page: <https://sdg.knowledgeondemand.net>
+
+Direct release link: [latest GitHub Release](https://github.com/williamdemarigny/sdg-connection-test/releases/latest).
+
 ## Running the client
 
 ```

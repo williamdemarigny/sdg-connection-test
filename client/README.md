@@ -13,8 +13,8 @@ do, and tells you how to verify that for yourself.
 
 ## TL;DR — how to run it
 
-1. Install [Node.js 18 or later](https://nodejs.org/en/download) (LTS is fine).
-2. Unzip the `sdg-connection-test.zip` you downloaded from SDG.
+1. Install [Node.js 20 or later](https://nodejs.org/en/download) (LTS is fine).
+2. Download `sdg-connection-test.zip` from <https://sdg.knowledgeondemand.net> and unzip it.
 3. Open a terminal (PowerShell, cmd, or bash) in the unzipped folder.
 4. Run:
 
