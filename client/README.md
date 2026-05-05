@@ -22,11 +22,16 @@ do, and tells you how to verify that for yourself.
    node client/client.js --host <server-given-by-SDG>
    ```
 
-5. Review the "what this will do" summary the tool prints.
+5. Review the "what this will do" summary the tool prints. It includes
+   an estimated runtime.
 6. Press `y` to proceed.
-7. Wait about 90-120 seconds.
+7. Wait about 3-4 minutes. The default run includes every diagnostic
+   the tool can do; pass `--full` if SDG support specifically asks
+   for the longer NAT-idle ladder (which adds ~7 minutes).
 8. Read the results table. If SDG asked for a JSON report, re-run with
-   `--json report.json` and send them the file.
+   `--json report.json` and send them the file. The reflected public
+   IP is redacted by default; pass `--include-public-ip` only if SDG
+   support specifically asks for it.
 
 Full options:
 
@@ -113,6 +118,10 @@ Choose one or more of:
 | Steam A2S query | UDP 27015 | A real Source-engine query gets a real reply — the same thing the Steam server browser does |
 | Game-shape sustained | UDP 27016 | The server pushes ~60 pps, 200-400 byte packets for 10 seconds. Measures how many you receive and whether there are any gaps larger than 250 ms (the signature of ISP shaping/throttling) |
 | `--real-server` A2S (opt-in) | Your Torch server | Sends an A2S query to the actual server you are trying to play on, for side-by-side comparison |
+| NAT idle-timeout (`--nat-idle`) | UDP 27016 | Holds one socket open and probes the path after 30/60/120/300 seconds of idle to find when your carrier's NAT mapping gets evicted. Most likely culprit for "I get disconnected after a few minutes" reports on T-Mobile 5G Home. |
+| NAT type / endpoint reflection (`--nat-type`) | UDP 27016 + 27017 | Asks the server what source port it observed on each of two destinations. Tells you whether your NAT is "cone" (peer-to-peer works) or "symmetric" (peer-to-peer needs a relay like Steam Datagram). |
+| Bidirectional sustained (`--bidir up\|both`) | UDP 27016 | Same shape as the standard sustained test but in the upload direction (or both). Detects uplink-only throttling, which T-Mobile's uplink can do independently of downlink. |
+| Burst-vs-steady (`--burst`) | UDP 27443 (baseline) | 100 packets as fast as the kernel will let us, then 100 at 10 pps. Compares loss patterns to fingerprint a policer (token bucket — burst eaten, steady fine), a shaper (loss at both rates), or random loss. |
 
 ## Reading the results
 
@@ -141,7 +150,33 @@ Choose one or more of:
 --no-a2s                 Skip the Steam A2S query test.
 --real-server <h:p>      Also send A2S to your real Torch server.
 --duration <seconds>     Override the sustained test duration (default 10).
+--family <4|6|auto>      Force IPv4 ('4'), IPv6 ('6'), or let the OS pick.
 --json <file>            Write a full JSON report to <file>.
 --yes, -y                Skip the confirmation prompt.
 --help, -h               Show this help.
+```
+
+### Phase 1 diagnostics (ON by default)
+
+Every `node client.js --host X` run includes the Phase 1 tests with
+sensible default windows. Total runtime ~3-4 minutes. Use the opt-out
+flags below if you need to dial back, or `--full` for the long NAT
+idle ladder.
+
+```
+--no-nat-idle            Skip the NAT idle-timeout test. Default: 30+60 s.
+--no-nat-type            Skip the NAT-type / endpoint-reflection test.
+--no-burst               Skip the burst-vs-steady policer test.
+--bidir <down|up|both>   Sustained test direction. Default 'both'
+                         (downstream + upstream). Pass 'down' for the
+                         legacy v1.0.0 behavior.
+--full                   Use the full NAT idle ladder (30,60,120,300 s).
+                         ~10 minutes total. For mid-session disconnect
+                         cases that the default windows don't surface.
+--nat-idle <s1,s2,...>   Custom NAT idle ladder. Overrides the default.
+--up-pps <n>             Upstream packet rate when --bidir != down
+                         (default 60, cap 200).
+--include-public-ip      Include the full reflected public IP in the
+                         --json report. Default is to redact the host
+                         portion so reports can be shared safely.
 ```

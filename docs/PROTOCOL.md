@@ -26,15 +26,25 @@ Offset  Size  Field              Description
 ------  ----  -----------------  --------------------------------------------
 0       4     magic              ASCII 'SDGT'  =  0x53 0x44 0x47 0x54
 4       1     version            = 1
-5       1     type               1 = probe            (client -> server)
-                                 2 = reply            (server -> client)
-                                 3 = stream_begin     (client -> server)
-                                 4 = stream_stop      (client -> server)
-                                 5 = stream_data      (server -> client)
-                                 6 = stream_challenge (server -> client, 16-byte token at offset 36)
-                                 7 = stream_confirm   (client -> server, echoes challenge token)
-                                 8 = rate_limited     (server -> client, always exactly 36 bytes)
-6       2     reserved           = 0x00 0x00
+5       1     type               1  = probe            (client -> server)
+                                 2  = reply            (server -> client)
+                                 3  = stream_begin     (client -> server)
+                                 4  = stream_stop      (client -> server)
+                                 5  = stream_data      (server -> client)
+                                 6  = stream_challenge (server -> client, 16-byte token at offset 36)
+                                 7  = stream_confirm   (client -> server, echoes challenge token)
+                                 8  = rate_limited     (server -> client, always exactly 36 bytes)
+                                 9  = reflect_reply    (server -> client, see §4)
+                                 10 = stream_data_up   (client -> server, see §5)
+                                 11 = stream_tally     (server -> client, see §5)
+                                 12 = capabilities     (server -> client, see §6)
+6       1     flags              On PROBE (type 1): high bit (0x80) requests
+                                 endpoint reflection (§4). Low bits reserved.
+                                 On STREAM_BEGIN (type 3): low byte carries
+                                 the direction code (0=down, 1=up, 2=both).
+                                 v1 servers ignored this byte; treat any
+                                 unknown bits as MUST-IGNORE.
+7       1     reserved           = 0x00
 8       8     session_nonce      8 random bytes generated once per client run.
                                  Printed by the client at startup so the
                                  player can match it against outbound traffic
@@ -126,7 +136,214 @@ We do **not** implement the real SteamNetworkingSockets handshake. See
 
 ---
 
-## 3. Steam A2S query (UDP 27015 only)
+## 3. Phase 1 diagnostic extensions — overview
+
+Four diagnostic tests added in client v1.1.0 motivated several backwards-
+compatible protocol additions. None of them bump the SDGT VERSION byte:
+v1 servers reject unknown versions outright, so a bump would silently
+break interop. Instead we use TYPE values 9..12 plus repurposed reserved
+bits, all of which old servers ignore by construction.
+
+The four tests and what they need from the server are:
+
+| Test                      | Server change?                          | Ref |
+| ------------------------- | --------------------------------------- | --- |
+| NAT idle-timeout probe    | None — uses ordinary PROBE/REPLY        | §4  |
+| Endpoint reflection       | Yes — server echoes observed src IP/port| §4  |
+| Bidirectional sustained   | Yes — server counts up-stream and tallies| §5 |
+| Burst-vs-steady policer   | None — uses ordinary PROBE/REPLY        | -   |
+
+Capability negotiation (§6) lets a new client detect a v1 server before
+running tests 2 or 3, and degrade to a structured "skipped" result rather
+than misinterpret a non-response.
+
+---
+
+## 4. Endpoint reflection (REFLECT_REPLY, type 9)
+
+To classify the customer's NAT (cone vs symmetric) the client needs to
+know what source IP and port the server actually observed on its
+incoming probe. The client opts into this by setting bit 0x80 of the
+flags byte (offset 6) on a normal PROBE (type 1). A server that
+implements reflection responds with a REFLECT_REPLY (type 9) instead
+of REPLY (type 2). A v1 server ignores the bit and emits the usual
+REPLY — the client interprets the absence of REFLECT_REPLY as "server
+does not support reflection".
+
+### REFLECT_REPLY payload
+
+```
+Offset  Size  Field
+36      1     af               1 = IPv4, 2 = IPv6
+37      1     reserved         must be 0
+38      2     port             u16 LE — observed source port
+40      4     ipv4             network order; zero-filled if af=2
+44      16    ipv6             network order; zero-filled if af=1
+60..    pad   zero padding to match the inbound probe size
+```
+
+### Anti-amplification rule
+
+A REFLECT_REPLY MUST be no larger than the probe that elicited it.
+The client pads its reflection-requesting PROBE to at least 60 bytes;
+the server pads (or truncates) the REFLECT_REPLY to the same size.
+This preserves the existing "echo replies are non-amplifying"
+invariant from `SECURITY.md` T1.
+
+If a client requests reflection in a probe smaller than 60 bytes, the
+server MUST respond with RATE_LIMITED (36 bytes, de-amplifying)
+rather than truncate the reflection payload.
+
+### NAT-type classification
+
+The client sends two reflection-requesting probes from the **same**
+source socket to **two different** destination ports (e.g. 27016 and
+27017) and compares the reflected ports:
+
+- Equal reflected ports → endpoint-independent mapping (cone NAT).
+- Different reflected ports → address- or port-dependent mapping
+  (symmetric NAT). Symmetric NAT defeats most peer-to-peer NAT
+  traversal and forces relay (Steam Datagram Relay).
+- Over IPv6 there is typically no NAT; reflected port == source port
+  trivially. Reported as "no NAT (IPv6)" rather than "cone".
+
+Reflected source IPs may legitimately differ even on the same socket
+when the carrier rotates CGNAT egress IPs (T-Mobile 5G Home does
+this). The classifier only compares ports.
+
+### NAT idle-timeout probe (no protocol change)
+
+The client opens a single UDP socket, sends a reflection-requesting
+probe, then for each window in {30 s, 60 s, 120 s, 300 s}:
+
+1. Idles the socket for the window.
+2. Sends three confirmation probes spaced 100 ms apart (so a single
+   isolated drop doesn't blacklist the window).
+3. Records whether any reply came back.
+
+If reflection is supported, the client also compares the reflected
+port before vs after the idle: a port change indicates the carrier
+NAT mapping was evicted and recreated rather than preserved. This
+lets the test distinguish "mapping survived" from "mapping was
+recreated with a fresh egress port" even though the data path
+appeared to work in both cases.
+
+---
+
+## 5. Bidirectional sustained (STREAM_DATA_UP, STREAM_TALLY)
+
+The legacy sustained test (§2) emits server-to-client traffic only.
+That measures the customer's downlink path. Phase 1 adds an opt-in
+upstream (and combined) variant to measure the uplink path
+independently — T-Mobile 5G Home's uplink is a separately-configured
+device with its own shaping behavior.
+
+### Direction signaling
+
+The client encodes the requested direction in byte 6 of STREAM_BEGIN:
+
+| Value | Meaning |
+| ----- | ------- |
+| 0     | Down (legacy — server->client only). v1 server behavior. |
+| 1     | Up — client sends STREAM_DATA_UP packets, server tallies. |
+| 2     | Both — server emits STREAM_DATA AND client emits STREAM_DATA_UP. |
+
+A v1 server ignores byte 6 and runs a downstream. A v2-aware client
+detects this mismatch by the absence of STREAM_TALLY at the end of
+the test, marks the result `serverSupported: false`, and reports the
+test as skipped.
+
+### Up-stream protocol
+
+After the existing STREAM_CHALLENGE / STREAM_CONFIRM handshake (§1)
+completes for an up-stream or combined stream:
+
+1. Client emits STREAM_DATA_UP (type 10) packets at the requested
+   rate (default 60 pps, capped at 200) for the requested duration
+   (default 10 s, capped at 300 s). Sequence numbers are monotonic
+   from 0; payload sizes are random in [200, 400] to mimic the
+   downstream shape and exercise the uplink shaper symmetrically.
+
+2. Client sends STREAM_STOP (type 4) when done.
+
+3. Server emits STREAM_TALLY (type 11) **three times** with sequence
+   numbers 0, 1, 2 in quick succession. Three copies because a single
+   tally lost on the return path would blind the client to the
+   server's count entirely; with three, any one arriving is enough.
+
+### STREAM_TALLY payload
+
+```
+Offset  Size  Field
+36      8     packets_received  u64 LE
+44      4     first_seq         u32 LE  (lowest seq the server saw)
+48      4     last_seq          u32 LE  (highest seq the server saw)
+52      8     bytes_received    u64 LE  (split lo/hi across two u32s)
+60      4     gaps_gt_250ms     u32 LE
+64..    pad   zero
+```
+
+### Server-side hardening required
+
+The server team must implement (specified for completeness; the
+client treats absence as "v1 server"):
+
+- A hard server-side duration cap on up-streams identical to the
+  existing 10 s downstream cap, **independent of any STREAM_STOP** —
+  if the client dies mid-test, server state must self-clean.
+- Per-IP up-stream concurrency limit (recommend: 1 active up-stream
+  per source IP, ~20 globally) so the test can't be used to flood
+  the server.
+- A separate token-bucket allocation for the up-stream window so the
+  test does not trip the existing per-IP rate limiter (200 capacity,
+  50 pps refill) against itself. The bucket is bound to the
+  STREAM_CONFIRM token and lasts only for the negotiated duration.
+- Replay protection: the STREAM_CHALLENGE HMAC input MUST include the
+  direction byte, so a captured downstream token cannot be replayed
+  to flip a downstream into an upstream/both stream the source IP
+  did not request.
+
+---
+
+## 6. Capability negotiation (CAPABILITIES, type 12)
+
+Before running any reflection-dependent or bidirectional test, the
+client probes the server for feature support on UDP 27443 (the
+existing baseline port). The probe is an ordinary PROBE (type 1) with
+sequence = 0xCAFEBABE — a magic value chosen because it is well
+outside any sequence range a real test would use.
+
+- A v1 server treats the probe as a normal PROBE and replies with
+  REPLY (type 2) echoing the magic sequence back. The client
+  interprets this as "no Phase 1 features".
+- A v2-aware server recognizes the magic sequence and replies with
+  CAPABILITIES (type 12) carrying a 32-bit feature bitmap at offset
+  36.
+
+### CAPABILITIES payload
+
+```
+Offset  Size  Field
+36      4     feature_bitmap   u32 LE
+                                 bit 0 (0x01) = REFLECTION
+                                 bit 1 (0x02) = BIDIRECTIONAL
+                                 bit 2 (0x04) = NAT_IDLE_AWARE  (informational)
+                                 bits 3..31    reserved (must be ignored)
+40..    pad   zero
+```
+
+The CAPABILITIES packet MUST be no larger than the inbound probe
+that elicited it (anti-amplification rule, same as REFLECT_REPLY).
+
+### Forward compatibility
+
+Future protocol additions add bits to `feature_bitmap`. Clients MUST
+ignore bits they do not understand. Servers MUST NOT remove bits;
+features only ever get added.
+
+---
+
+## 7. Steam A2S query (UDP 27015 only)
 
 This is the public Source Engine query protocol documented by Valve at
 <https://developer.valvesoftware.com/wiki/Server_queries>. We implement

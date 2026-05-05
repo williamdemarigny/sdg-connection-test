@@ -7,14 +7,15 @@ question a security-conscious player might have about the client.
 
 ## The short version
 
-The client is a single JavaScript file, around 500 lines, that uses only
-Node.js built-in modules. It sends two kinds of packet: a small binary
-probe of our own design, and the standard public Steam A2S_INFO query.
-Every byte is documented in [PROTOCOL.md](./PROTOCOL.md). It never reads
-files from your machine, never reads environment variables, and never
-makes a network request to anything except the `--host` (and optional
-`--real-server`) you pass on the command line. The source is intended to
-be skimmable in ten minutes by anyone with basic JavaScript literacy.
+The client is a single JavaScript file, around 1100 lines, that uses
+only Node.js built-in modules. It sends two kinds of packet: a small
+binary probe of our own design, and the standard public Steam
+A2S_INFO query. Every byte is documented in
+[PROTOCOL.md](./PROTOCOL.md). It never reads files from your machine,
+never reads environment variables, and never makes a network request
+to anything except the `--host` (and optional `--real-server`) you
+pass on the command line. The source is intended to be skimmable in
+fifteen minutes by anyone with basic JavaScript literacy.
 
 ## What you should verify for yourself
 
@@ -23,15 +24,16 @@ Trust is earned. Here is how to earn it.
 ### 1. Inspect the code
 
 The complete client is in [`../client/client.js`](../client/client.js),
-plus two tiny helpers in [`../shared/ports.js`](../shared/ports.js) and
-[`../shared/protocol.js`](../shared/protocol.js). Together they are under
-700 lines of commented JavaScript.
+plus three tiny helpers in [`../shared/ports.js`](../shared/ports.js),
+[`../shared/protocol.js`](../shared/protocol.js), and
+[`../shared/netUtils.js`](../shared/netUtils.js). Together they are
+roughly 1500 lines of commented JavaScript.
 
 Things to search for:
 
 - `require(` — lists every module loaded. You should see only
   `net`, `dgram`, `dns/promises`, `crypto`, `fs/promises`, `readline`,
-  `perf_hooks`, and the two sibling files in `../shared/`. Nothing else.
+  `perf_hooks`, and the three sibling files in `../shared/`. Nothing else.
 - `fs.` — every file access. In the client, `fs.writeFile` is used only
   when you pass `--json <file>` and writes only to that file.
 - `process.env` — not used at all in the client.
@@ -100,12 +102,52 @@ Instead, we:
    server to the client at the same packet rate and size distribution as
    real SE gameplay. This does not reproduce the encrypted handshake, but
    it does give any ISP DPI the same traffic fingerprint to trip on.
-4. Optionally (`--real-server`) send a real A2S_INFO directly to your
+4. Run four targeted Phase 1 diagnostics that catch the carrier
+   failure modes the L3/L4 sweep misses. Each is opt-out and fully
+   documented byte-by-byte in [PROTOCOL.md](./PROTOCOL.md):
+   - **NAT idle-timeout probe** — holds one socket open and probes
+     after 30 s and 60 s of idle (or up to 300 s with `--full`). The
+     reflected source port is compared before and after each idle
+     window to detect carrier NAT mapping eviction even when the
+     data path appears to recover. Covers the most common T-Mobile
+     5G Home failure mode.
+   - **Endpoint reflection / NAT type** — sends two probes from one
+     socket to two destinations and compares the source port the
+     server reports observing. Same port → cone NAT (peer-to-peer
+     works). Different port → symmetric NAT (peer-to-peer needs a
+     relay). Reflected public IP is **redacted by default** in any
+     `--json` report because the README invites support sharing of
+     reports; pass `--include-public-ip` to include it.
+   - **Bidirectional sustained stream** — the legacy sustained test
+     was downstream-only. The bidirectional variant adds a
+     client-emits-server-tallies upstream phase so uplink-only
+     throttling (T-Mobile's uplink path is a separately-shaped
+     device) becomes visible. The server replies with a single
+     small tally packet (sent three times for loss tolerance).
+   - **Burst-vs-steady policer test** — 100 packets as fast as the
+     OS will let us, then 100 packets at 10 pps. Comparing the loss
+     rates fingerprints policer (token-bucket: burst lossy, steady
+     fine), shaper (loss at both rates), or random loss.
+5. Optionally (`--real-server`) send a real A2S_INFO directly to your
    actual Torch/SE server for a true end-to-end comparison.
 
 If all L3/L4 tests pass on ISP A and fail on ISP B, and the A2S query
 behaves the same way, then ISP B is the problem regardless of whether we
 ever completed a real SteamNetworkingSockets handshake.
+
+### What Phase 1 does NOT do
+
+- It does not learn anything new about your machine. The only piece
+  of new data Phase 1 introduces in the JSON report is the source
+  IP and port the **server** observed for your probes — i.e. your
+  public-internet-facing endpoint, which every router on the path
+  already sees. The host portion is redacted by default.
+- It does not change the wire-protocol VERSION byte. A Phase 1
+  client speaking to a v1.0.0 server gracefully degrades: each
+  server-dependent test reports `SKIPPED (server too old)` rather
+  than producing a fabricated answer.
+- It does not communicate with anything other than `--host`. The
+  privacy boundary is unchanged from v1.0.0.
 
 ## Anything we missed?
 

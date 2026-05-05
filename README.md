@@ -69,6 +69,30 @@ To run the full test against a JSON report:
 node client.js --host <host> --json report.json
 ```
 
+### Phase 1 diagnostics (ON by default)
+
+Every default run now includes four targeted tests for the harder
+cases — carrier NAT timeouts, symmetric NAT blocking peer-to-peer,
+uplink-only throttling, and policer-vs-shaper fingerprinting. Total
+runtime ~3-4 minutes; pass `--full` for the longer NAT-idle ladder
+(~10 minutes) when the default windows don't surface anything.
+
+| Test | What it diagnoses |
+| --- | --- |
+| NAT idle (30 + 60 s) | CGNAT idle-mapping eviction (the most common T-Mobile 5G Home symptom — "I get disconnected after a few minutes") |
+| NAT type | Symmetric vs cone NAT — tells you whether peer-to-peer needs a relay |
+| Bidirectional sustained (`both`) | Uplink-only throttling, which is invisible to a downstream-only sustained test |
+| Burst-vs-steady | Policer (burst loss, steady fine) vs shaper (loss at both rates) vs random loss |
+
+The Phase 1 server-dependent tests (`nat-type` and `bidir up/both`)
+gracefully degrade against a v1 server: the client probes for
+support and prints `SKIPPED (server too old)` if not present.
+Reflected public IP in the `--json` report is redacted by default —
+pass `--include-public-ip` to opt in.
+
+To dial back: `--no-nat-idle`, `--no-nat-type`, `--no-burst`,
+`--bidir down`, or pass `--ports` to limit the per-port sweep.
+
 ## Auditing the client
 
 See [`client/README.md`](client/README.md) and
