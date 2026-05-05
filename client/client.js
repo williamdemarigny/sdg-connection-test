@@ -76,6 +76,26 @@ const TCP_CONNECT_TIMEOUT_MS = 3000;
 const CAPABILITY_PROBE_PORT = 27443;       // baseline UDP port; both legacy
                                            // and v2 servers must listen here.
 const CAPABILITY_PROBE_TIMEOUT_MS = 1500;
+// Phase 2 tunables.
+//
+// Source-port fan-out: open N=4 sockets in sequence, each gets a fresh
+// ephemeral source port from the kernel. 20 packets per socket × 4
+// sockets = 80 probes total; total wall-clock ~16s. We stay sequential
+// (rather than parallel) so the four flows don't compete for path or
+// kernel send-buffer state — each is an isolated measurement.
+const FANOUT_SOCKET_COUNT  = 4;
+const FANOUT_PACKETS_EACH  = 20;
+// Payload-shape sensitivity: three patterns × 25 packets = 75 probes;
+// total wall-clock ~13s. Patterns chosen to expose DPI by signature:
+//
+//   game-shape  — zero-padded to 200..400 bytes, mimicking SE traffic
+//   random      — 256 bytes of crypto-random, looks like nothing
+//   zero-fill   — 200 bytes of zero, looks like nothing
+//
+// If the path passes one but drops another, a DPI device is making
+// content-based decisions. The patterns are sent on the SE port
+// (UDP 27016) because that's the most likely target of game-aware DPI.
+const PAYLOAD_SHAPE_PACKETS_EACH = 25;
 // NAT idle-timeout test default windows. CGNAT idle is the single most
 // common cause of mid-session SE disconnects on T-Mobile 5G Home; the
 // 30/60/120/300 ladder brackets the documented carrier values.
@@ -125,6 +145,11 @@ function parseArgs(argv) {
     burst: true,
     upPps: UP_PPS_DEFAULT,
     includePublicIp: false,   // redact reflected IP in JSON unless set
+    // Phase 2 defaults — also ON. Costs ~30s combined and surfaces
+    // failure modes the L3/L4 + Phase 1 sweep misses (per-flow
+    // shaping, DPI by payload signature, loss-burst patterns).
+    sourcePortFanout: true,
+    payloadShape: true,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -201,6 +226,8 @@ function parseArgs(argv) {
       }
     }
     else if (a === '--include-public-ip') out.includePublicIp = true;
+    else if (a === '--no-source-fanout') out.sourcePortFanout = false;
+    else if (a === '--no-payload-shape') out.payloadShape = false;
     else if (a === '--help' || a === '-h') out.help = true;
     else { console.error(`Unknown argument: ${a}`); out.help = true; }
   }
@@ -256,6 +283,20 @@ Phase 1 diagnostics (ON by default — every customer run includes them):
   --include-public-ip      Include the full reflected source IP in the
                            JSON report. Default: redact the host portion
                            so reports can be shared safely.
+
+Phase 2 diagnostics (ON by default — adds ~30 s):
+  --no-source-fanout       Skip the source-port fan-out test, which sends
+                           probes from 4 different ephemeral source ports
+                           to detect per-5-tuple shaping or unlucky
+                           ECMP paths.
+  --no-payload-shape       Skip the payload-shape sensitivity test, which
+                           sends probes with three different payload
+                           contents (game-shape, random, zero-fill) to
+                           detect DPI by content fingerprint.
+
+Loss-burst histogram and reordering counts are added to every UDP
+loss test and sustained run automatically — no flag needed; they're
+free metrics derived from data we already collect.
 
 Example:
   node client.js --host test.sdgservers.example --json report.json
@@ -427,6 +468,129 @@ function interpretBurstVsSteady({ burst, steady }) {
   return { kind: 'unclear', reason: `burst ${b.adjLoss.toFixed(1)}% / steady ${s.adjLoss.toFixed(1)}% — pattern doesn't fit a known policer/shaper signature` };
 }
 
+// Walk a sorted array of arrived sequence numbers in [0, count) and
+// produce a histogram of consecutive-loss run lengths. The shape of
+// this histogram fingerprints loss patterns:
+//
+//   { '1': N }           — purely random, isolated drops
+//   { '2-4': N, ... }    — bursts of 2-4 typical of brief congestion
+//   { '5-9': N, ... }    — sustained policer cycles, e.g. token-bucket empty
+//   { '10+': N }         — multi-hundred-ms outages, almost always shaping
+//
+// The output bucket scheme is intentionally chunky (not a per-length
+// histogram). Customers don't need finer granularity than "single
+// drops vs short bursts vs long bursts vs sustained outages".
+function lossBurstHistogram(arrivedSeqs, count) {
+  if (!Array.isArray(arrivedSeqs) || !Number.isInteger(count) || count <= 0) {
+    return { 1: 0, '2-4': 0, '5-9': 0, '10+': 0 };
+  }
+  const arrived = new Set(arrivedSeqs);
+  const buckets = { 1: 0, '2-4': 0, '5-9': 0, '10+': 0 };
+  let run = 0;
+  // Scanning past the end (i == count) flushes the final run into a
+  // bucket without needing a duplicate post-loop branch.
+  for (let i = 0; i <= count; i++) {
+    const present = i < count && arrived.has(i);
+    if (!present && i < count) {
+      run++;
+    } else if (run > 0) {
+      if (run === 1)       buckets[1]++;
+      else if (run <= 4)   buckets['2-4']++;
+      else if (run <= 9)   buckets['5-9']++;
+      else                 buckets['10+']++;
+      run = 0;
+    }
+  }
+  return buckets;
+}
+
+// Count out-of-order arrivals. Given the order in which sequence
+// numbers arrived (e.g. [0,1,3,2,4,5]), count the number of pairs
+// (i, j) where i < j but arrivalOrder[i] > arrivalOrder[j] — i.e.
+// inversions, which are exactly the "reordering events" the path
+// produced. We return both the count and the percentage of received
+// packets that participated in any inversion, since either metric
+// alone is misleading for low-N tests.
+//
+// Reordering matters because Space Engineers' interpolation can
+// survive packet loss but stutters on reorder; a high reorder rate
+// with low loss is a real complaint pattern that the loss column
+// alone wouldn't surface.
+function countReorderings(arrivalOrder) {
+  if (!Array.isArray(arrivalOrder) || arrivalOrder.length < 2) {
+    return { inversions: 0, pct: 0 };
+  }
+  let inversions = 0;
+  // Naive O(n^2) is fine here — N is at most ~600 in the longest
+  // sustained test (60 pps × 10 s) and we run this once per test.
+  for (let i = 0; i < arrivalOrder.length; i++) {
+    for (let j = i + 1; j < arrivalOrder.length; j++) {
+      if (arrivalOrder[i] > arrivalOrder[j]) inversions++;
+    }
+  }
+  const pct = (inversions * 100) / arrivalOrder.length;
+  return { inversions, pct };
+}
+
+// Verdict translator for source-port fan-out: given an array of
+// per-socket loss percentages, decide whether the variance is high
+// enough to call it "per-flow discrimination" (an ECMP unlucky path
+// or a per-5-tuple shaper) versus uniform path behavior.
+function classifyFanout(perSocketLoss) {
+  if (!Array.isArray(perSocketLoss) || perSocketLoss.length < 2) {
+    return { kind: 'incomplete', reason: 'need at least 2 sockets to compare' };
+  }
+  const min = Math.min(...perSocketLoss);
+  const max = Math.max(...perSocketLoss);
+  const spread = max - min;
+  if (max < 2) {
+    return { kind: 'clean', reason: 'all source ports show <2% loss — no per-flow discrimination' };
+  }
+  if (spread > 20) {
+    return { kind: 'per-flow', reason: `loss varies ${spread.toFixed(0)}% across source ports — per-5-tuple shaping or unlucky ECMP path` };
+  }
+  if (spread < 5) {
+    return { kind: 'uniform', reason: `loss is consistent across source ports (~${max.toFixed(1)}%) — path-wide, not per-flow` };
+  }
+  return { kind: 'mild-variance', reason: `loss spread ${spread.toFixed(1)}% across source ports — borderline; rerun if it matters` };
+}
+
+// Verdict translator for payload-shape sensitivity: given per-pattern
+// loss percentages, decide whether DPI is making decisions on payload
+// content. The thresholds match classifyFanout for consistency.
+function classifyPayloadShape(perPatternLoss) {
+  if (!perPatternLoss || typeof perPatternLoss !== 'object') {
+    return { kind: 'incomplete', reason: 'need at least 2 patterns to compare' };
+  }
+  const values = Object.values(perPatternLoss);
+  if (values.length < 2) {
+    return { kind: 'incomplete', reason: 'need at least 2 patterns to compare' };
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min;
+  if (max < 2) {
+    return { kind: 'clean', reason: 'all payload shapes show <2% loss — no DPI fingerprint detected' };
+  }
+  if (spread > 20) {
+    // Identify which pattern is the outlier so the verdict points
+    // the operator at the actionable detail (e.g. "random-bytes is
+    // dropped, game-shape is fine" → DPI signature is on the SE
+    // packet shape).
+    const worst = Object.entries(perPatternLoss).reduce(
+      (acc, [k, v]) => (v > acc[1] ? [k, v] : acc), ['', -1],
+    );
+    return {
+      kind: 'dpi-fingerprint',
+      reason: `${worst[0]} loss ${worst[1].toFixed(0)}% vs cleaner peers — payload-content-based DPI`,
+    };
+  }
+  if (spread < 5) {
+    return { kind: 'uniform', reason: `loss is consistent across payload shapes (~${max.toFixed(1)}%) — not content-driven` };
+  }
+  return { kind: 'mild-variance', reason: `loss spread ${spread.toFixed(1)}% across payload shapes — borderline` };
+}
+
 // Redact a public IP for inclusion in a shared report. The README
 // invites users to share their JSON report with operators for support;
 // the reflected source IP is therefore now potentially a shared
@@ -531,6 +695,10 @@ async function udpLossTest({ host, port, nonce, family = 4 }) {
   const rtts = [];
   let received = 0;
   let rateLimited = 0;
+  // Phase 2: track which sequences arrived (for the burst histogram)
+  // and the order in which they arrived (for the reordering count).
+  const arrivedSeqs = [];
+  const arrivalOrder = [];
   const sock = dgram.createSocket(dgramTypeFor(family));
   const pending = new Map();   // seq -> sendMs
 
@@ -545,6 +713,8 @@ async function udpLossTest({ host, port, nonce, family = 4 }) {
     pending.delete(decoded.sequence);
     rtts.push(nowMs() - sent);
     received++;
+    arrivedSeqs.push(decoded.sequence);
+    arrivalOrder.push(decoded.sequence);
   });
   sock.on('error', () => {});
 
@@ -567,6 +737,8 @@ async function udpLossTest({ host, port, nonce, family = 4 }) {
     rateLimited,
     lossPct: (1 - received / LOSS_PACKET_COUNT) * 100,
     latency: stats(rtts),
+    burstHistogram: lossBurstHistogram(arrivedSeqs, LOSS_PACKET_COUNT),
+    reordering: countReorderings(arrivalOrder),
   };
 }
 
@@ -919,6 +1091,143 @@ async function burstVsSteadyTest({ host, port = BURST_PORT, nonce, family = 4 })
 }
 
 // ================================================================
+// Phase 2: Source-port fan-out
+// ================================================================
+//
+// Repeats a small loss test from N=4 different ephemeral source ports
+// against the same (host, port) destination. Diverging loss rates
+// across source ports indicate per-5-tuple discrimination — either
+// an unlucky ECMP hash bucket on a carrier router, or a per-flow
+// shaper.
+//
+// Pure client-side, no server change required. Uses the existing
+// PROBE/REPLY path; the only thing that varies is which source port
+// the kernel assigns to each successive socket.
+async function sourcePortFanoutTest({ host, port, nonce, family = 4 }) {
+  const perSocket = [];
+  for (let s = 0; s < FANOUT_SOCKET_COUNT; s++) {
+    const sock = dgram.createSocket(dgramTypeFor(family));
+    let received = 0;
+    let rateLimited = 0;
+    const pending = new Map();
+    sock.on('error', () => {});
+    sock.on('message', (msg) => {
+      const decoded = protocol.decode(msg);
+      if (!decoded || !decoded.nonce.equals(nonce)) return;
+      if (decoded.type === protocol.TYPE.RATE_LIMITED) { rateLimited++; return; }
+      if (decoded.type !== protocol.TYPE.REPLY) return;
+      if (!pending.has(decoded.sequence)) return;
+      pending.delete(decoded.sequence);
+      received++;
+    });
+    // Bind explicitly so we can read back the kernel-assigned source
+    // port and surface it in the JSON report. address() only returns
+    // a meaningful port after bind() resolves.
+    await new Promise((resolve) => sock.bind(0, undefined, resolve));
+    const sourcePort = sock.address() ? sock.address().port : 0;
+
+    for (let seq = 0; seq < FANOUT_PACKETS_EACH; seq++) {
+      // Use a base-shifted sequence so the per-socket pending maps
+      // never collide with each other or with other tests' sequences.
+      const fullSeq = 30000 + s * 1000 + seq;
+      const pkt = protocol.encode({
+        type: protocol.TYPE.PROBE,
+        nonce, sequence: fullSeq,
+        clientTsNs: nowNs(),
+      });
+      pending.set(fullSeq, true);
+      sock.send(pkt, port, host, () => {});
+      await new Promise((r) => setTimeout(r, LOSS_INTERVAL_MS));
+    }
+    await new Promise((r) => setTimeout(r, PROBE_TIMEOUT_MS));
+    try { sock.close(); } catch (e) {}
+    const lossPct = (1 - received / FANOUT_PACKETS_EACH) * 100;
+    perSocket.push({ sourcePort, sent: FANOUT_PACKETS_EACH, received, rateLimited, lossPct });
+  }
+  const verdict = classifyFanout(perSocket.map(s => s.lossPct));
+  return { port, perSocket, verdict };
+}
+
+// ================================================================
+// Phase 2: Payload-shape sensitivity
+// ================================================================
+//
+// Run three short loss tests on the SE game port, varying only the
+// payload bytes. If the path drops one shape but passes another,
+// there's a DPI device making content-based decisions — this lets
+// the support team distinguish "the path is bad" from "the path
+// hates SE specifically".
+//
+// Three patterns:
+//   - game-shape: zero-padded to 200..400 bytes (matches the
+//     legacy MTU sweep / sustained traffic profile)
+//   - random:     256 bytes of crypto-random — opaque content
+//   - zero-fill:  200 bytes of zero — opaque-but-zeroed content
+//
+// All three are PROBE packets (TYPE 1); only the post-header bytes
+// change. The server's handler echoes the entire packet verbatim
+// for replies, so it doesn't care what's in the padding area.
+async function payloadShapeTest({ host, port, nonce, family = 4 }) {
+  // Builder for each pattern. Returns a function that produces a
+  // fresh buffer each call (so we don't mutate a shared one).
+  const patterns = {
+    'game-shape': () => {
+      const size = 200 + Math.floor(Math.random() * 200);
+      return { totalSize: size, fill: 'zero' };
+    },
+    'random': () => ({ totalSize: 256, fill: 'random' }),
+    'zero-fill': () => ({ totalSize: 200, fill: 'zero' }),
+  };
+  const perPattern = {};
+  for (const [name, builder] of Object.entries(patterns)) {
+    const sock = dgram.createSocket(dgramTypeFor(family));
+    let received = 0;
+    let rateLimited = 0;
+    const pending = new Map();
+    sock.on('error', () => {});
+    sock.on('message', (msg) => {
+      const decoded = protocol.decode(msg);
+      if (!decoded || !decoded.nonce.equals(nonce)) return;
+      if (decoded.type === protocol.TYPE.RATE_LIMITED) { rateLimited++; return; }
+      if (decoded.type !== protocol.TYPE.REPLY) return;
+      if (!pending.has(decoded.sequence)) return;
+      pending.delete(decoded.sequence);
+      received++;
+    });
+    for (let seq = 0; seq < PAYLOAD_SHAPE_PACKETS_EACH; seq++) {
+      const fullSeq = 40000 + (Object.keys(patterns).indexOf(name) * 1000) + seq;
+      const { totalSize, fill } = builder();
+      const pkt = protocol.encode({
+        type: protocol.TYPE.PROBE,
+        nonce, sequence: fullSeq,
+        clientTsNs: nowNs(),
+        totalSize,
+      });
+      if (fill === 'random') {
+        // Overwrite the post-header bytes with crypto-random data.
+        // The protocol header bytes (0..35) stay valid SDGT so the
+        // server still parses and replies; only the padding region
+        // (36..) varies, which is exactly what DPI signatures key on.
+        crypto.randomBytes(totalSize - protocol.HEADER_SIZE).copy(pkt, protocol.HEADER_SIZE);
+      }
+      // 'zero' fill: nothing to do. protocol.encode() already
+      // zero-allocs the whole buffer.
+      pending.set(fullSeq, true);
+      sock.send(pkt, port, host, () => {});
+      await new Promise((r) => setTimeout(r, LOSS_INTERVAL_MS));
+    }
+    await new Promise((r) => setTimeout(r, PROBE_TIMEOUT_MS));
+    try { sock.close(); } catch (e) {}
+    const lossPct = (1 - received / PAYLOAD_SHAPE_PACKETS_EACH) * 100;
+    perPattern[name] = { sent: PAYLOAD_SHAPE_PACKETS_EACH, received, rateLimited, lossPct };
+  }
+  const verdict = classifyPayloadShape(
+    Object.fromEntries(Object.entries(perPattern).map(([k, v]) => [k, v.lossPct])),
+  );
+  return { port, perPattern, verdict };
+}
+
+// ================================================================
 // TCP probes
 // ================================================================
 
@@ -1082,6 +1391,8 @@ function sustainedTest({ host, port, nonce, durationMs, family = 4 }) {
     let minSeq = null;
     let maxSeq = null;
     const seenSeqs = new Set();
+    // Phase 2 tracking — same as udpLossTest.
+    const arrivalOrder = [];
 
     sock.on('error', () => {});
     sock.on('message', (msg) => {
@@ -1129,6 +1440,7 @@ function sustainedTest({ host, port, nonce, durationMs, family = 4 }) {
       if (!seenSeqs.has(decoded.sequence)) {
         seenSeqs.add(decoded.sequence);
         received++;
+        arrivalOrder.push(decoded.sequence);
         if (minSeq == null || decoded.sequence < minSeq) minSeq = decoded.sequence;
         if (maxSeq == null || decoded.sequence > maxSeq) maxSeq = decoded.sequence;
       }
@@ -1167,6 +1479,22 @@ function sustainedTest({ host, port, nonce, durationMs, family = 4 }) {
           expected = (maxSeq - minSeq) + 1;
           lossPct = expected > 0 ? Math.max(0, (1 - received / expected) * 100) : 0;
         }
+        // Burst histogram is computed against [minSeq, maxSeq] — the
+        // window the server actually emitted. Anything outside that
+        // window isn't loss, just timing of setup/teardown.
+        let burstHistogram, reordering;
+        if (minSeq == null || maxSeq == null) {
+          burstHistogram = lossBurstHistogram([], expected);
+          reordering = countReorderings([]);
+        } else {
+          // Re-base sequences to [0, span) so the histogram walker
+          // doesn't have to special-case minSeq.
+          const span = (maxSeq - minSeq) + 1;
+          const arrivedBased = [...seenSeqs].map(s => s - minSeq);
+          const arrivalBased = arrivalOrder.map(s => s - minSeq);
+          burstHistogram = lossBurstHistogram(arrivedBased, span);
+          reordering = countReorderings(arrivalBased);
+        }
         resolve({
           expected,
           received,
@@ -1180,6 +1508,8 @@ function sustainedTest({ host, port, nonce, durationMs, family = 4 }) {
           jitter: stats(interArrivals),
           maxGapMs,
           exceeded250ms: maxGapMs > 250,
+          burstHistogram,
+          reordering,
         });
       });
     }, durationMs + 500);
@@ -1209,6 +1539,8 @@ function sustainedTestV2({ host, port, nonce, durationMs, direction, upPps, fami
     let minSeq = null;
     let maxSeq = null;
     const seenSeqs = new Set();
+    // Phase 2 tracking — same as legacy sustainedTest.
+    const arrivalOrder = [];
     let tally = null;
 
     const wantsDown = direction === protocol.DIRECTION_DOWN || direction === protocol.DIRECTION_BOTH;
@@ -1297,6 +1629,7 @@ function sustainedTestV2({ host, port, nonce, durationMs, direction, upPps, fami
       if (!seenSeqs.has(decoded.sequence)) {
         seenSeqs.add(decoded.sequence);
         received++;
+        arrivalOrder.push(decoded.sequence);
         if (minSeq == null || decoded.sequence < minSeq) minSeq = decoded.sequence;
         if (maxSeq == null || decoded.sequence > maxSeq) maxSeq = decoded.sequence;
       }
@@ -1341,6 +1674,23 @@ function sustainedTestV2({ host, port, nonce, durationMs, direction, upPps, fami
           upLossPct = upSent > 0 ? Math.max(0, (1 - tally.packets / upSent) * 100) : 0;
         }
         const serverSupported = wantsUp ? tally != null : true;
+        // Burst histogram + reordering for the downstream half. The
+        // up-stream half doesn't get one because the client doesn't
+        // see individual up packets land — only the server's tally,
+        // which is a single number. (For up-direction burst signal,
+        // wait until we wire client-emit-side timestamping into the
+        // tally — out of scope for Phase 2.)
+        let burstHistogram, reordering;
+        if (!wantsDown || minSeq == null || maxSeq == null) {
+          burstHistogram = lossBurstHistogram([], downExpected || 0);
+          reordering = countReorderings([]);
+        } else {
+          const span = (maxSeq - minSeq) + 1;
+          const arrivedBased = [...seenSeqs].map(s => s - minSeq);
+          const arrivalBased = arrivalOrder.map(s => s - minSeq);
+          burstHistogram = lossBurstHistogram(arrivedBased, span);
+          reordering = countReorderings(arrivalBased);
+        }
         resolve({
           direction,
           serverSupported,
@@ -1355,6 +1705,8 @@ function sustainedTestV2({ host, port, nonce, durationMs, direction, upPps, fami
           jitter: stats(interArrivals),
           maxGapMs,
           exceeded250ms: maxGapMs > 250,
+          burstHistogram,
+          reordering,
           // Up-direction fields
           upSent: wantsUp ? upSent : null,
           upTallied: tally,
@@ -1406,6 +1758,8 @@ async function runTests(opts) {
     natIdle: null,
     natType: null,
     burstVsSteady: null,
+    sourcePortFanout: null,
+    payloadShape: null,
   };
 
   // Capability probe runs first whenever a Phase 1 server-dependent
@@ -1584,6 +1938,32 @@ async function runTests(opts) {
     console.log(`    verdict: ${b.verdict.kind} — ${b.verdict.reason}`);
   }
 
+  if (opts.sourcePortFanout) {
+    console.log('');
+    console.log(`  Source-port fan-out on udp ${GAME_SHAPE_PORT} (${FANOUT_SOCKET_COUNT} sockets × ${FANOUT_PACKETS_EACH} probes) ...`);
+    report.sourcePortFanout = await sourcePortFanoutTest({
+      host: resolved, port: GAME_SHAPE_PORT, nonce, family,
+    });
+    const f = report.sourcePortFanout;
+    for (const s of f.perSocket) {
+      console.log(`    src ${s.sourcePort}: ${s.received}/${s.sent} (loss ${fmt(s.lossPct)}%)`);
+    }
+    console.log(`    verdict: ${f.verdict.kind} — ${f.verdict.reason}`);
+  }
+
+  if (opts.payloadShape) {
+    console.log('');
+    console.log(`  Payload-shape sensitivity on udp ${GAME_SHAPE_PORT} (3 patterns × ${PAYLOAD_SHAPE_PACKETS_EACH} probes) ...`);
+    report.payloadShape = await payloadShapeTest({
+      host: resolved, port: GAME_SHAPE_PORT, nonce, family,
+    });
+    const p = report.payloadShape;
+    for (const [name, r] of Object.entries(p.perPattern)) {
+      console.log(`    ${name.padEnd(11)}: ${r.received}/${r.sent} (loss ${fmt(r.lossPct)}%)`);
+    }
+    console.log(`    verdict: ${p.verdict.kind} — ${p.verdict.reason}`);
+  }
+
   if (opts.realServer) {
     let rs;
     try {
@@ -1689,6 +2069,72 @@ function printTable(report) {
     console.log(`  steady: ${b.steady.received}/${b.steady.sent}, loss ${fmt(b.steady.lossPct)}%`);
     console.log(`  ${b.verdict.reason}`);
   }
+  if (report.sourcePortFanout) {
+    const f = report.sourcePortFanout;
+    console.log('');
+    console.log(`Source-port fan-out on udp ${f.port}: ${f.verdict.kind}`);
+    for (const s of f.perSocket) {
+      console.log(`  src ${String(s.sourcePort).padStart(5)}: ${s.received}/${s.sent}, loss ${fmt(s.lossPct)}%`);
+    }
+    console.log(`  ${f.verdict.reason}`);
+  }
+  if (report.payloadShape) {
+    const p = report.payloadShape;
+    console.log('');
+    console.log(`Payload-shape sensitivity on udp ${p.port}: ${p.verdict.kind}`);
+    for (const [name, r] of Object.entries(p.perPattern)) {
+      console.log(`  ${name.padEnd(11)}: ${r.received}/${r.sent}, loss ${fmt(r.lossPct)}%`);
+    }
+    console.log(`  ${p.verdict.reason}`);
+  }
+  // Surface burst-loss histograms and reordering counts when the
+  // signal is actually meaningful (i.e. there were drops, or there
+  // were inversions). Keeps clean runs short.
+  const burstSummaries = [];
+  for (const r of report.perPort) {
+    if (r.loss && r.loss.burstHistogram) {
+      const h = r.loss.burstHistogram;
+      const totalRuns = h[1] + h['2-4'] + h['5-9'] + h['10+'];
+      if (totalRuns > 0) {
+        const parts = [];
+        if (h[1])     parts.push(`${h[1]}× single`);
+        if (h['2-4']) parts.push(`${h['2-4']}× 2-4`);
+        if (h['5-9']) parts.push(`${h['5-9']}× 5-9`);
+        if (h['10+']) parts.push(`${h['10+']}× 10+`);
+        burstSummaries.push(`udp ${r.port}: ${parts.join(', ')}`);
+      }
+    }
+  }
+  if (report.sustained && report.sustained.burstHistogram) {
+    const h = report.sustained.burstHistogram;
+    const totalRuns = h[1] + h['2-4'] + h['5-9'] + h['10+'];
+    if (totalRuns > 0) {
+      const parts = [];
+      if (h[1])     parts.push(`${h[1]}× single`);
+      if (h['2-4']) parts.push(`${h['2-4']}× 2-4`);
+      if (h['5-9']) parts.push(`${h['5-9']}× 5-9`);
+      if (h['10+']) parts.push(`${h['10+']}× 10+`);
+      burstSummaries.push(`game-shape: ${parts.join(', ')}`);
+    }
+  }
+  if (burstSummaries.length) {
+    console.log('');
+    console.log('Loss-burst pattern (consecutive-drop runs):');
+    for (const line of burstSummaries) console.log(`  ${line}`);
+  }
+  // Reordering only matters if it actually happened. SE's
+  // interpolation hides loss but stutters on reorder, so even a
+  // few inversions are worth flagging.
+  const reorderSummaries = [];
+  if (report.sustained && report.sustained.reordering && report.sustained.reordering.inversions > 0) {
+    const r = report.sustained.reordering;
+    reorderSummaries.push(`game-shape: ${r.inversions} inversions (${fmt(r.pct)}% of received)`);
+  }
+  if (reorderSummaries.length) {
+    console.log('');
+    console.log('Packet reordering (matters for SE — interpolation stutters):');
+    for (const line of reorderSummaries) console.log(`  ${line}`);
+  }
   if (report.sustained && !report.sustained.skipped && report.sustained.upSent != null && report.sustained.serverSupported) {
     const s = report.sustained;
     console.log('');
@@ -1739,17 +2185,21 @@ async function main() {
   console.log(`NAT idle    : ${opts.natIdle ? opts.natIdle.join(',') + 's windows' : 'no'}`);
   console.log(`NAT type    : ${opts.natType ? 'yes (requires v2 server)' : 'no'}`);
   console.log(`Burst test  : ${opts.burst ? 'yes (udp ' + BURST_PORT + ')' : 'no'}`);
+  console.log(`Source fan-out : ${opts.sourcePortFanout ? `yes (${FANOUT_SOCKET_COUNT} sockets × ${FANOUT_PACKETS_EACH} probes)` : 'no'}`);
+  console.log(`Payload shapes : ${opts.payloadShape ? 'yes (3 patterns)' : 'no'}`);
   console.log(`Real server : ${opts.realServer || '(none)'}`);
   console.log(`JSON output : ${opts.json || '(none — console only)'}`);
   // Wall-clock estimate so the user knows whether to make coffee. Sum
   // of the most expensive components: per-port loss tests, sustained,
-  // nat-idle (dominant when present), burst.
+  // nat-idle (dominant when present), burst, fan-out, payload-shape.
   const estSec = (opts.ports ? opts.ports.length : PORTS.length) * 6
                + (opts.sustained ? Math.round(opts.duration / 1000) + 2 : 0)
                + (opts.a2s ? 3 : 0)
                + (opts.natIdle ? opts.natIdle.reduce((a, b) => a + b, 0) + opts.natIdle.length * 1 : 0)
                + (opts.natType ? 3 : 0)
-               + (opts.burst ? 15 : 0);
+               + (opts.burst ? 15 : 0)
+               + (opts.sourcePortFanout ? FANOUT_SOCKET_COUNT * (Math.round(FANOUT_PACKETS_EACH * LOSS_INTERVAL_MS / 1000) + 2) : 0)
+               + (opts.payloadShape ? 3 * (Math.round(PAYLOAD_SHAPE_PACKETS_EACH * LOSS_INTERVAL_MS / 1000) + 2) : 0);
   console.log(`Estimated runtime : ~${estSec}s`);
   console.log('');
   console.log('This tool will send test packets to the above host only. It will');
@@ -1785,4 +2235,7 @@ module.exports = {
   // Phase 1 pure helpers exposed for unit tests.
   classifyNatType, natTypeImpact, interpretBurstVsSteady, redactIp,
   redactReportForJson,
+  // Phase 2 pure helpers exposed for unit tests.
+  lossBurstHistogram, countReorderings,
+  classifyFanout, classifyPayloadShape,
 };

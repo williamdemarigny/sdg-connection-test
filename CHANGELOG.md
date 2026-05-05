@@ -16,6 +16,34 @@ guaranteed.
 
 ## [Unreleased]
 
+### Added — Phase 2 diagnostics
+
+Two more default-on diagnostics targeting carrier failure modes the
+Phase 1 sweep can miss, plus two free metrics derived from existing
+data. All client-side, no server change required. Total added
+runtime ~30 s on top of Phase 1.
+
+- **Source-port fan-out** (`--no-source-fanout` to skip). Repeats a
+  short loss test from 4 different ephemeral source ports against
+  UDP 27016. Diverging loss across source ports → per-5-tuple
+  shaping or unlucky ECMP hash bucket; uniform loss → path-wide
+  problem; clean → no per-flow discrimination.
+- **Payload-shape sensitivity** (`--no-payload-shape` to skip).
+  Three short loss tests on UDP 27016 with different payload
+  contents (game-shape, random bytes, zero-fill). Diverging loss
+  across patterns → DPI making content-based decisions. Names
+  the worst pattern in the verdict so support can act on it.
+- **Loss-burst histogram** — added to every UDP loss/sustained
+  test as a side effect of existing tracking. Runs of consecutive
+  drops bucketed as 1 / 2-4 / 5-9 / 10+. Surfaced only when
+  meaningful (>0 drops). The shape of the histogram fingerprints
+  loss type: many singles → random; clusters of 5-9 → policer
+  cycles; any 10+ → multi-hundred-ms outage / shaping.
+- **Packet reordering count** — same approach. Out-of-order
+  arrivals counted; surfaced when >0 because SE's interpolation
+  hides loss but stutters on reorder, so even a few inversions
+  matter to a customer experience.
+
 ### Added — Phase 1 diagnostics
 
 Four new opt-out diagnostic tests targeting the carrier failure modes

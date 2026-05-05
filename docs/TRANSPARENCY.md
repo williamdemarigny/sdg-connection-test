@@ -102,9 +102,9 @@ Instead, we:
    server to the client at the same packet rate and size distribution as
    real SE gameplay. This does not reproduce the encrypted handshake, but
    it does give any ISP DPI the same traffic fingerprint to trip on.
-4. Run four targeted Phase 1 diagnostics that catch the carrier
-   failure modes the L3/L4 sweep misses. Each is opt-out and fully
-   documented byte-by-byte in [PROTOCOL.md](./PROTOCOL.md):
+4. Run six targeted diagnostics that catch the carrier failure modes
+   the L3/L4 sweep misses. Each is opt-out and fully documented
+   byte-by-byte in [PROTOCOL.md](./PROTOCOL.md):
    - **NAT idle-timeout probe** — holds one socket open and probes
      after 30 s and 60 s of idle (or up to 300 s with `--full`). The
      reflected source port is compared before and after each idle
@@ -128,6 +128,31 @@ Instead, we:
      OS will let us, then 100 packets at 10 pps. Comparing the loss
      rates fingerprints policer (token-bucket: burst lossy, steady
      fine), shaper (loss at both rates), or random loss.
+   - **Source-port fan-out** — repeats a small loss test from four
+     different ephemeral source ports against the same destination.
+     Diverging loss rates across source ports indicate per-5-tuple
+     discrimination (an unlucky ECMP hash bucket on a carrier
+     router, or a per-flow shaper) rather than a path-wide problem.
+   - **Payload-shape sensitivity** — sends three short loss tests
+     on UDP 27016 with three different payload contents
+     (game-shape, random bytes, zero-filled). If the path passes
+     one shape but drops another, a DPI device is making decisions
+     based on payload content. The patterns themselves contain no
+     information about your machine — they are zero-padding,
+     crypto-random bytes, or zero-filled.
+
+   Two additional metrics are derived from the data the existing
+   loss tests already collect, with no extra packets sent:
+
+   - **Loss-burst histogram** — runs of consecutive lost packets
+     bucketed as 1, 2-4, 5-9, 10+. The shape of this histogram
+     fingerprints loss type (isolated drops vs policer cycles vs
+     sustained outages).
+   - **Packet reordering count** — out-of-order arrivals matter for
+     SE because the game's interpolation can survive packet loss
+     but stutters on reorder; a high reorder rate with low loss is
+     a real complaint pattern that "loss %" alone wouldn't surface.
+
 5. Optionally (`--real-server`) send a real A2S_INFO directly to your
    actual Torch/SE server for a true end-to-end comparison.
 
@@ -135,19 +160,23 @@ If all L3/L4 tests pass on ISP A and fail on ISP B, and the A2S query
 behaves the same way, then ISP B is the problem regardless of whether we
 ever completed a real SteamNetworkingSockets handshake.
 
-### What Phase 1 does NOT do
+### What the new diagnostics do NOT do
 
-- It does not learn anything new about your machine. The only piece
-  of new data Phase 1 introduces in the JSON report is the source
-  IP and port the **server** observed for your probes — i.e. your
-  public-internet-facing endpoint, which every router on the path
-  already sees. The host portion is redacted by default.
-- It does not change the wire-protocol VERSION byte. A Phase 1
-  client speaking to a v1.0.0 server gracefully degrades: each
-  server-dependent test reports `SKIPPED (server too old)` rather
-  than producing a fabricated answer.
-- It does not communicate with anything other than `--host`. The
-  privacy boundary is unchanged from v1.0.0.
+- They do not learn anything new about your machine. The only
+  piece of new data Phase 1 introduces in the JSON report is the
+  source IP and port the **server** observed for your probes —
+  i.e. your public-internet-facing endpoint, which every router
+  on the path already sees. The host portion is redacted by
+  default. Phase 2 adds nothing your machine doesn't already
+  know about itself.
+- They do not change the wire-protocol VERSION byte. A
+  Phase 1+2 client speaking to a v1.0.0 server gracefully
+  degrades: each server-dependent test reports `SKIPPED
+  (server too old)` rather than producing a fabricated answer.
+  The Phase 2 tests are entirely client-side and require no
+  server support at all.
+- They do not communicate with anything other than `--host`.
+  The privacy boundary is unchanged from v1.0.0.
 
 ## Anything we missed?
 

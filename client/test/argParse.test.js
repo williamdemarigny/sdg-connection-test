@@ -141,19 +141,23 @@ test('--duration rejects non-numeric', mute(() => {
 
 // ---- Phase 1 flags --------------------------------------------------------
 
-test('Phase 1 diagnostics default to ON — customer-friendly default', () => {
+test('Phase 1+2 diagnostics default to ON — customer-friendly default', () => {
   // The whole point of the tool is blame attribution. Default-on for
-  // the Phase 1 tests means every customer support run captures the
-  // hard-case diagnostics (CGNAT eviction, symmetric NAT, uplink
-  // throttling, policer fingerprinting) without requiring the customer
-  // to know about flags. The runtime cost is bounded by the 30+60 s
-  // NAT idle ladder; --full extends to 30,60,120,300.
+  // the diagnostic tests means every customer support run captures the
+  // hard-case patterns (CGNAT eviction, symmetric NAT, uplink
+  // throttling, policer fingerprinting, per-flow shaping, DPI signature)
+  // without requiring the customer to know about flags. Total runtime
+  // ~4 minutes; --full extends the NAT idle ladder for ~10 min.
   const o = parseArgs([]);
+  // Phase 1
   assert.deepEqual(o.natIdle, [30, 60]);
   assert.equal(o.natType, true);
   assert.equal(o.bidir, 'both');
   assert.equal(o.burst, true);
   assert.equal(o.upPps, 60);
+  // Phase 2
+  assert.equal(o.sourcePortFanout, true);
+  assert.equal(o.payloadShape, true);
   // includePublicIp stays default-OFF for privacy: reflection is run
   // by default, but the reflected public IP is redacted in any JSON
   // report unless the operator opts in.
@@ -165,6 +169,12 @@ test('--no-nat-type, --no-burst, --no-nat-idle opt out of individual tests', () 
   assert.equal(o.natType, false);
   assert.equal(o.burst, false);
   assert.equal(o.natIdle, null);
+});
+
+test('--no-source-fanout and --no-payload-shape opt out of Phase 2 tests', () => {
+  const o = parseArgs(['--no-source-fanout', '--no-payload-shape']);
+  assert.equal(o.sourcePortFanout, false);
+  assert.equal(o.payloadShape, false);
 });
 
 test('--bidir down restores the legacy downstream-only sustained test', () => {
