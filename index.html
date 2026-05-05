@@ -134,7 +134,7 @@
     <p class="tagline">A small, auditable diagnostic for proving or disproving whether a specific ISP is blocking or throttling the UDP traffic that Space Engineers, Torch, and Steam depend on.</p>
 
     <div class="download-card">
-      <a class="download-button" href="https://github.com/williamdemarigny/sdg-connection-test/releases/latest">Download the latest release</a>
+      <a class="download-button" href="https://github.com/sdg-net/sdg-connection-test/releases/latest">Download the latest release</a>
       <p class="checksum">Latest: <strong>v1.0.0</strong> — SHA256 published on the release page.</p>
     </div>
 
@@ -157,20 +157,20 @@
     <h2>Why you can trust it</h2>
     <p>The client is a single ~500-line JavaScript file with zero runtime dependencies and is deliberately written to be skimmable in ten minutes. Three layers of audit:</p>
     <ul>
-      <li><strong>Read the source</strong> &mdash; <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/client/client.js">client/client.js</a> on GitHub. The <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/TRANSPARENCY.md">transparency notes</a> walk through what to <code>grep</code> for and what each match means.</li>
-      <li><strong>Watch the packets</strong> &mdash; run with Wireshark capturing on your active NIC. Every outbound packet has the same 8-byte session nonce printed at startup, so you can filter by it. Every packet matches one of the layouts in the <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/PROTOCOL.md">protocol spec</a>.</li>
+      <li><strong>Read the source</strong> &mdash; <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/client/client.js">client/client.js</a> on GitHub. The <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/TRANSPARENCY.md">transparency notes</a> walk through what to <code>grep</code> for and what each match means.</li>
+      <li><strong>Watch the packets</strong> &mdash; run with Wireshark capturing on your active NIC. Every outbound packet has the same 8-byte session nonce printed at startup, so you can filter by it. Every packet matches one of the layouts in the <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/PROTOCOL.md">protocol spec</a>.</li>
       <li><strong>Run it in a sandbox</strong> &mdash; Windows Sandbox, a throwaway VM, or a Docker <code>node:20-alpine</code> container all work.</li>
     </ul>
 
     <h2>What the server logs</h2>
-    <p>The operator-deployed server records minimal session metadata for diagnostic correlation: source IP, source ASN/ISP, a client-generated nonce (printed at client startup so you can correlate captures), per-port packet counts, and rate-limit counters. Logs are capped at ~100 MB total on disk, never shipped off-host, and never correlated with Steam or in-game identity. Full detail in the <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/PRIVACY.md">privacy notice</a>.</p>
+    <p>The operator-deployed server records minimal session metadata for diagnostic correlation: source IP, source ASN/ISP, a client-generated nonce (printed at client startup so you can correlate captures), per-port packet counts, and rate-limit counters. Logs are capped at ~100 MB total on disk, never shipped off-host, and never correlated with Steam or in-game identity. Full detail in the <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/PRIVACY.md">privacy notice</a>.</p>
 
     <h2>Source &amp; license</h2>
-    <p>MIT-licensed. The client and shared protocol code live at <a href="https://github.com/williamdemarigny/sdg-connection-test">github.com/williamdemarigny/sdg-connection-test</a>. The server implementation is operator-internal; the security model and behavioral guarantees are spelled out in <a href="https://github.com/williamdemarigny/sdg-connection-test/blob/main/docs/SECURITY.md">SECURITY.md</a>.</p>
+    <p>MIT-licensed. The client and shared protocol code live at <a href="https://github.com/sdg-net/sdg-connection-test">github.com/sdg-net/sdg-connection-test</a>. The server implementation is operator-internal; the security model and behavioral guarantees are spelled out in <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/SECURITY.md">SECURITY.md</a>.</p>
 
     <p class="footer">
       Built by SDG. Hosted at <a href="https://sdg.knowledgeondemand.net">sdg.knowledgeondemand.net</a>.
-      Source: <a href="https://github.com/williamdemarigny/sdg-connection-test">github.com/williamdemarigny/sdg-connection-test</a>.
+      Source: <a href="https://github.com/sdg-net/sdg-connection-test">github.com/sdg-net/sdg-connection-test</a>.
     </p>
   </div>
 </body>
