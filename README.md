@@ -49,7 +49,7 @@ docs/TRANSPARENCY.md     for security-conscious players
 
 Customer-facing download page: <https://sdg.knowledgeondemand.net>
 
-Direct release link: [latest GitHub Release](https://github.com/williamdemarigny/sdg-connection-test/releases/latest).
+Direct release link: [latest GitHub Release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
 
 ## Running the client
 
