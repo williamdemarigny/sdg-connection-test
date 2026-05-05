@@ -122,6 +122,9 @@ Choose one or more of:
 | NAT type / endpoint reflection (`--nat-type`) | UDP 27016 + 27017 | Asks the server what source port it observed on each of two destinations. Tells you whether your NAT is "cone" (peer-to-peer works) or "symmetric" (peer-to-peer needs a relay like Steam Datagram). |
 | Bidirectional sustained (`--bidir up\|both`) | UDP 27016 | Same shape as the standard sustained test but in the upload direction (or both). Detects uplink-only throttling, which T-Mobile's uplink can do independently of downlink. |
 | Burst-vs-steady (`--burst`) | UDP 27443 (baseline) | 100 packets as fast as the kernel will let us, then 100 at 10 pps. Compares loss patterns to fingerprint a policer (token bucket — burst eaten, steady fine), a shaper (loss at both rates), or random loss. |
+| Source-port fan-out | UDP 27016 | Sends a short loss test from 4 different ephemeral source ports. Diverging loss across source ports indicates per-5-tuple shaping or an unlucky ECMP hash bucket on a carrier router. |
+| Payload-shape sensitivity | UDP 27016 | Three loss tests with different payload contents (game-shape, random, zero-fill). Diverging loss indicates DPI making content-based decisions. |
+| Loss-burst histogram & reordering | every UDP test | Free metrics derived from data already collected: runs of consecutive drops bucketed as 1 / 2-4 / 5-9 / 10+, and out-of-order arrivals counted. Surfaced only when there's signal. |
 
 ## Reading the results
 
@@ -167,6 +170,8 @@ idle ladder.
 --no-nat-idle            Skip the NAT idle-timeout test. Default: 30+60 s.
 --no-nat-type            Skip the NAT-type / endpoint-reflection test.
 --no-burst               Skip the burst-vs-steady policer test.
+--no-source-fanout       Skip the source-port fan-out test.
+--no-payload-shape       Skip the payload-shape sensitivity test.
 --bidir <down|up|both>   Sustained test direction. Default 'both'
                          (downstream + upstream). Pass 'down' for the
                          legacy v1.0.0 behavior.

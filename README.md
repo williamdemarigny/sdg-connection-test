@@ -69,13 +69,13 @@ To run the full test against a JSON report:
 node client.js --host <host> --json report.json
 ```
 
-### Phase 1 diagnostics (ON by default)
+### Diagnostics included in every default run
 
-Every default run now includes four targeted tests for the harder
-cases — carrier NAT timeouts, symmetric NAT blocking peer-to-peer,
-uplink-only throttling, and policer-vs-shaper fingerprinting. Total
-runtime ~3-4 minutes; pass `--full` for the longer NAT-idle ladder
-(~10 minutes) when the default windows don't surface anything.
+Every default run includes six targeted tests for the harder cases —
+carrier NAT timeouts, symmetric NAT blocking peer-to-peer, uplink-only
+throttling, policer-vs-shaper fingerprinting, per-5-tuple shaping, and
+DPI by payload signature. Total runtime ~4 minutes; pass `--full` for
+the longer NAT-idle ladder (~10 minutes).
 
 | Test | What it diagnoses |
 | --- | --- |
@@ -83,15 +83,24 @@ runtime ~3-4 minutes; pass `--full` for the longer NAT-idle ladder
 | NAT type | Symmetric vs cone NAT — tells you whether peer-to-peer needs a relay |
 | Bidirectional sustained (`both`) | Uplink-only throttling, which is invisible to a downstream-only sustained test |
 | Burst-vs-steady | Policer (burst loss, steady fine) vs shaper (loss at both rates) vs random loss |
+| Source-port fan-out | Per-5-tuple shaping or unlucky ECMP path: probes from 4 different source ports, diverging loss → per-flow discrimination |
+| Payload-shape sensitivity | DPI by content fingerprint: same packet rate with three different payload patterns; diverging loss → DPI is making decisions on payload content |
 
-The Phase 1 server-dependent tests (`nat-type` and `bidir up/both`)
-gracefully degrade against a v1 server: the client probes for
+Plus two metrics derived from the data the existing loss tests
+already collect, with no extra packets sent: a loss-burst histogram
+(runs of consecutive drops, bucketed) and a packet-reordering count
+(SE's interpolation stutters on reorder, so this is a real
+complaint pattern).
+
+The server-dependent tests (`nat-type` and `bidir up/both`)
+gracefully degrade against a v1.0.0 server: the client probes for
 support and prints `SKIPPED (server too old)` if not present.
 Reflected public IP in the `--json` report is redacted by default —
 pass `--include-public-ip` to opt in.
 
 To dial back: `--no-nat-idle`, `--no-nat-type`, `--no-burst`,
-`--bidir down`, or pass `--ports` to limit the per-port sweep.
+`--no-source-fanout`, `--no-payload-shape`, `--bidir down`, or
+pass `--ports` to limit the per-port sweep.
 
 ## Auditing the client
 
