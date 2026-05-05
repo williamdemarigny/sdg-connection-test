@@ -72,6 +72,34 @@ up to the 1400-byte MTU test. This reply is therefore a
 **de-amplifier**: it costs an attacker more bytes to send a probe than
 it does for the server to refuse it.
 
+**Endpoint reflection (REFLECT_REPLY, type 9).** Phase 1 added a
+reflection feature for NAT-type classification. The server's reply
+MUST be padded (or truncated) to **exactly the inbound probe size**;
+the client cooperates by sending reflection-requesting probes at >=60
+bytes. A reflection-requesting probe smaller than 60 bytes MUST be
+answered with `RATE_LIMITED` (36 bytes, de-amplifying) rather than a
+truncated reflection — never let the client's bug become the server's
+amplifier.
+
+**Capability reply (CAPABILITIES, type 12).** Same rule: the reply
+MUST be no larger than the inbound capability probe. Pad or truncate
+to match.
+
+**Stream tally (STREAM_TALLY, type 11).** Sent only after a successful
+`STREAM_CONFIRM` for an `up` or `both` direction stream, so it is
+gated behind the same anti-spoof handshake as the existing downstream
+data. Three copies of the tally are sent for loss tolerance; the
+total tally output is bounded at three times a single ~80-byte
+packet, which is small relative to the legitimate inbound up-stream
+the client just produced.
+
+**Up-stream itself (STREAM_DATA_UP, type 10).** This is client-to-
+server traffic, so the server is the *recipient*, not a sender — by
+construction it is not an amplifier. The risk is that an attacker
+uses our server as a sink for noise (DoS T2, see below) or that
+unbounded server-side state is allocated. See T3 for the relevant
+caps.
+
 ### T2 — Volumetric DoS against the server
 
 We layer three rate limits:
@@ -111,6 +139,32 @@ entire point of the tool is blame attribution.
   timeout.
 - Docker `pids_limit: 128` and `nofile 4096` ulimits cap the process
   at the kernel level as a backstop.
+
+**Phase 1 up-stream caps (server team requirements):**
+
+- **Per-IP up-stream concurrency: 1.** A second up-stream from the
+  same source IP while one is active MUST be answered with
+  `RATE_LIMITED` (36 bytes), never a second `STREAM_CHALLENGE`.
+- **Global up-stream concurrency: 20.** Bounds total state.
+- **Hard up-stream duration cap: 300 s.** The server MUST run an
+  absolute timer from `STREAM_CONFIRM` and tear down the stream's
+  bookkeeping at the cap regardless of whether the client sent
+  `STREAM_STOP`. If the client dies mid-test, server state must
+  self-clean — the client is untrusted by construction.
+- **Up-stream byte cap: 30 MB per stream.** A 200-pps × 400-B × 300-s
+  upper bound is ~24 MB; 30 MB gives a small margin. Excess inbound
+  bytes from the same `(ip, port, nonce)` tuple after the cap are
+  silently dropped.
+- **Separate token bucket for the up-stream window.** When a
+  `STREAM_CONFIRM` is accepted with `direction != down`, allocate
+  300 s of up-stream credit (e.g. 60 000 packets) bound to the
+  challenge token. This bucket is separate from the per-IP general
+  bucket so the test does not trip the rate limiter against itself.
+- **Replay protection.** The `STREAM_CHALLENGE` HMAC input MUST
+  include the direction byte:
+  `HMAC(secret, "stream", direction, ip, port, nonce, bucket)`.
+  This prevents a captured downstream token from being replayed to
+  flip a downstream into an up-stream the source IP did not request.
 
 ### T4 — Log-driven disk exhaustion
 

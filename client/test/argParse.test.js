@@ -138,3 +138,132 @@ test('--duration rejects non-numeric', mute(() => {
   const o = parseArgs(['--duration', 'forever']);
   assert.equal(o.help, true);
 }));
+
+// ---- Phase 1 flags --------------------------------------------------------
+
+test('Phase 1 diagnostics default to ON — customer-friendly default', () => {
+  // The whole point of the tool is blame attribution. Default-on for
+  // the Phase 1 tests means every customer support run captures the
+  // hard-case diagnostics (CGNAT eviction, symmetric NAT, uplink
+  // throttling, policer fingerprinting) without requiring the customer
+  // to know about flags. The runtime cost is bounded by the 30+60 s
+  // NAT idle ladder; --full extends to 30,60,120,300.
+  const o = parseArgs([]);
+  assert.deepEqual(o.natIdle, [30, 60]);
+  assert.equal(o.natType, true);
+  assert.equal(o.bidir, 'both');
+  assert.equal(o.burst, true);
+  assert.equal(o.upPps, 60);
+  // includePublicIp stays default-OFF for privacy: reflection is run
+  // by default, but the reflected public IP is redacted in any JSON
+  // report unless the operator opts in.
+  assert.equal(o.includePublicIp, false);
+});
+
+test('--no-nat-type, --no-burst, --no-nat-idle opt out of individual tests', () => {
+  const o = parseArgs(['--no-nat-type', '--no-burst', '--no-nat-idle']);
+  assert.equal(o.natType, false);
+  assert.equal(o.burst, false);
+  assert.equal(o.natIdle, null);
+});
+
+test('--bidir down restores the legacy downstream-only sustained test', () => {
+  const o = parseArgs(['--bidir', 'down']);
+  assert.equal(o.bidir, 'down');
+});
+
+test('--full extends the NAT idle ladder to the long windows', () => {
+  const o = parseArgs(['--full']);
+  assert.deepEqual(o.natIdle, [30, 60, 120, 300]);
+});
+
+test('--nat-idle overrides the default ladder', () => {
+  const o = parseArgs(['--nat-idle', '15,45']);
+  assert.deepEqual(o.natIdle, [15, 45]);
+});
+
+test('explicit --nat-idle after --no-nat-idle re-enables (last-flag-wins)', () => {
+  // Order matters because flags are processed left-to-right. This is
+  // the existing behavior for every flag; pinning it in a test so
+  // someone refactoring parseArgs doesn't accidentally break it.
+  const o = parseArgs(['--no-nat-idle', '--nat-idle', '15,45']);
+  assert.deepEqual(o.natIdle, [15, 45]);
+});
+
+test('--nat-idle with no value uses the default ladder', () => {
+  const o = parseArgs(['--nat-idle']);
+  assert.deepEqual(o.natIdle, [30, 60, 120, 300]);
+});
+
+test('--nat-idle with comma-separated value parses the override', () => {
+  const o = parseArgs(['--nat-idle', '15,30,60']);
+  assert.deepEqual(o.natIdle, [15, 30, 60]);
+});
+
+test('--nat-idle followed by a flag uses defaults (does not consume the flag)', () => {
+  const o = parseArgs(['--nat-idle', '--yes']);
+  assert.deepEqual(o.natIdle, [30, 60, 120, 300]);
+  assert.equal(o.yes, true);
+});
+
+test('--nat-idle rejects non-positive or oversize values', mute(() => {
+  assert.equal(parseArgs(['--nat-idle', '0']).help, true);
+  assert.equal(parseArgs(['--nat-idle', '-5']).help, true);
+  assert.equal(parseArgs(['--nat-idle', '30,bogus']).help, true);
+  assert.equal(parseArgs(['--nat-idle', '700']).help, true, 'over 600 cap should reject');
+}));
+
+test('--nat-type is a pure boolean flag', () => {
+  assert.equal(parseArgs(['--nat-type']).natType, true);
+});
+
+test('--burst is a pure boolean flag', () => {
+  assert.equal(parseArgs(['--burst']).burst, true);
+});
+
+test('--bidir accepts down, up, both', () => {
+  assert.equal(parseArgs(['--bidir', 'down']).bidir, 'down');
+  assert.equal(parseArgs(['--bidir', 'up']).bidir, 'up');
+  assert.equal(parseArgs(['--bidir', 'both']).bidir, 'both');
+});
+
+test('--bidir rejects unknown value', mute(() => {
+  assert.equal(parseArgs(['--bidir', 'sideways']).help, true);
+}));
+
+test('--up-pps accepts 1..200', () => {
+  assert.equal(parseArgs(['--up-pps', '1']).upPps, 1);
+  assert.equal(parseArgs(['--up-pps', '200']).upPps, 200);
+  assert.equal(parseArgs(['--up-pps', '60']).upPps, 60);
+});
+
+test('--up-pps rejects out-of-range', mute(() => {
+  assert.equal(parseArgs(['--up-pps', '0']).help, true);
+  assert.equal(parseArgs(['--up-pps', '201']).help, true);
+  assert.equal(parseArgs(['--up-pps', 'fast']).help, true);
+}));
+
+test('--include-public-ip is a pure boolean flag', () => {
+  assert.equal(parseArgs(['--include-public-ip']).includePublicIp, true);
+});
+
+test('Phase 1 flags compose with existing flags', () => {
+  const o = parseArgs([
+    '--host', 'a.b.c', '--yes',
+    '--nat-idle', '60,120',
+    '--nat-type',
+    '--bidir', 'both',
+    '--up-pps', '100',
+    '--burst',
+    '--include-public-ip',
+  ]);
+  assert.equal(o.host, 'a.b.c');
+  assert.equal(o.yes, true);
+  assert.deepEqual(o.natIdle, [60, 120]);
+  assert.equal(o.natType, true);
+  assert.equal(o.bidir, 'both');
+  assert.equal(o.upPps, 100);
+  assert.equal(o.burst, true);
+  assert.equal(o.includePublicIp, true);
+  assert.equal(o.help, false);
+});

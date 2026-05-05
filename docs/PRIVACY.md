@@ -48,6 +48,42 @@ The server does **not** collect:
 The ASN/ISP lookup is performed offline against a small bundled ASN
 table on the server. No network request is made during lookup.
 
+## Phase 1 diagnostic additions (client v1.1.0)
+
+Four diagnostic tests added in client v1.1.0 introduce two privacy-
+relevant behaviors:
+
+### Endpoint reflection (`--nat-type`)
+
+The server, when this test is run, replies to a probe with the source
+IP and port it observed on the inbound packet. This is the same
+information every router on the path already sees and is needed to
+classify the customer's NAT (cone vs symmetric) — a failure mode
+behind many "I can't host or join games" reports.
+
+- **No new logging.** The reflected endpoint is in the *reply payload*,
+  not added to the session log. The session log already records
+  `srcIp`; reflection does not change what the operator can see.
+- **Client-side redaction.** The reflected public IP appears in the
+  client's `--json` report. Because the README invites users to share
+  reports for support, the client redacts the host portion of the
+  reflected IP by default (`1.2.3.4` → `1.2.3.x`; the first 32 bits of
+  IPv6 are preserved for ASN correlation, the rest dropped). Users can
+  pass `--include-public-ip` to opt into a non-redacted report when
+  full disclosure is desired.
+
+### Bidirectional sustained test (`--bidir up|both`)
+
+The client emits a sustained packet stream toward the server. The
+server's session log records this in the existing `counts` field
+(under a new `udp:27016:up` key) and a new `streamsTallied` count.
+No new fields beyond a per-port counter and the up/down direction.
+
+The server is required to enforce a duration cap, a per-IP up-stream
+concurrency cap, and a separate token-bucket allocation for the test
+window so it cannot be abused as a flood vector. See
+[`docs/SECURITY.md`](SECURITY.md) for the full hardening list.
+
 ## How long it is retained
 
 The log file is hard-capped at 50 MB. When that cap is exceeded the log

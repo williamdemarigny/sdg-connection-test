@@ -16,7 +16,95 @@ guaranteed.
 
 ## [Unreleased]
 
-(no changes since v1.0.0)
+### Added — Phase 1 diagnostics
+
+Four new opt-out diagnostic tests targeting the carrier failure modes
+the original v1.0.0 sweep couldn't surface. **All four default ON**:
+the whole point of the tool is blame attribution, and these are the
+tests that catch the cases the default L3/L4 sweep misses. Total
+runtime ~3-4 minutes; pass `--full` for the long NAT-idle ladder
+(~10 minutes).
+
+- **NAT idle-timeout probe** (`--no-nat-idle` to skip). Holds one UDP
+  socket open and probes after 30 + 60 seconds of idle (or
+  30/60/120/300 with `--full`). Catches CGNAT mapping eviction
+  even when the data path appears to recover, by comparing the
+  reflected source port before and after each idle window. Covers
+  the canonical T-Mobile 5G Home "I get disconnected after a few
+  minutes" symptom.
+- **Endpoint reflection / NAT type** (`--no-nat-type` to skip).
+  Sends two probes from one socket to two destination ports and
+  classifies the result as cone (peer-to-peer works), symmetric
+  (peer-to-peer needs a relay like Steam Datagram), or no-NAT
+  (IPv6).
+- **Bidirectional sustained stream** (`--bidir down` for legacy
+  downstream-only). The default sustained test now exercises both
+  directions; the up-stream phase reveals uplink-only throttling
+  that is invisible to a downstream-only test.
+- **Burst-vs-steady policer test** (`--no-burst` to skip). 100
+  packets at max kernel rate, then 100 at 10 pps, on UDP 27443
+  (baseline). Loss diff fingerprints policer vs shaper vs random
+  loss.
+
+Wire protocol additions (no VERSION bump — Phase 1 is fully
+backwards-compatible with v1.0.0 servers, which is why we kept
+VERSION=1):
+
+- `TYPE.REFLECT_REPLY` (9) — server echoes observed source IP/port,
+  padded to inbound probe size for non-amplification.
+- `TYPE.STREAM_DATA_UP` (10) — client→server up-stream payload.
+- `TYPE.STREAM_TALLY` (11) — server→client end-of-stream tally,
+  sent 3× for loss tolerance.
+- `TYPE.CAPABILITIES` (12) — feature bitmap (reflection,
+  bidirectional, nat-idle-aware) returned in response to a probe
+  with the magic sequence value `0xCAFEBABE`. Allows the client to
+  detect server support before running server-dependent tests and
+  print `SKIPPED (server too old)` rather than fabricate a verdict.
+- `flags` byte (offset 6 of the SDGT header) — previously reserved
+  zero. On `PROBE`: high bit (`FLAG_REFLECT`, `0x80`) opts into
+  reflection. On `STREAM_BEGIN` and `STREAM_CONFIRM`: low byte
+  carries the direction code (0=down, 1=up, 2=both).
+- `STREAM_CHALLENGE` HMAC input now includes `direction` when
+  `direction != 0`. A captured down-token cannot be replayed in
+  an up-direction CONFIRM. The `direction == 0` path is byte-
+  identical to the v1.0.0 HMAC for full wire compat.
+
+CLI additions:
+- `--full` extends the NAT idle ladder to 30/60/120/300 s.
+- `--nat-idle <s1,s2,...>` overrides the default ladder.
+- `--bidir <down|up|both>`, `--up-pps <n>` for the bidirectional
+  sustained variant.
+- `--no-nat-idle`, `--no-nat-type`, `--no-burst` to dial back.
+- `--include-public-ip` opts into a non-redacted reflected source
+  IP in the JSON report (default is to redact the host portion).
+
+### Changed
+- Default sustained test direction is now `both`. Pass `--bidir down`
+  for the legacy v1.0.0 downstream-only behavior.
+- Default run includes the four Phase 1 tests. Use `--no-*` flags
+  to dial back, or `--ports` to limit the per-port sweep.
+- Test suite grew from 81 (v1.0.0) to 138 client + 208 server tests.
+
+### Security
+- Anti-amplification invariant extended to the new types: every
+  server reply (REFLECT_REPLY, CAPABILITIES, STREAM_TALLY) is
+  bounded to ≤ inbound probe size. Reflection probes < 60 bytes
+  and capability probes < 40 bytes get RATE_LIMITED (36 bytes,
+  de-amplifying) instead of a truncated reply.
+- Up-stream concurrency cap (1 per source IP, 20 global), 30 MB
+  byte cap per stream, hard 300 s server-side timer independent
+  of `STREAM_STOP` — server state cleans itself up if the client
+  dies mid-test.
+- Direction folded into the STREAM_CHALLENGE HMAC: a token issued
+  for `direction=down` does not verify against a `direction=up`
+  CONFIRM. Documented in [`docs/SECURITY.md`](docs/SECURITY.md) T1.
+
+### Privacy
+- JSON report redacts the host portion of any reflected public IP
+  by default (v4: `1.2.3.x`; v6: keeps first /32 + redacted
+  marker). The README invites users to share their report for
+  support, so this prevents a CGNAT egress IP from becoming a
+  shared identifier without explicit opt-in (`--include-public-ip`).
 
 ## [1.0.0] — 2026-05-04
 
