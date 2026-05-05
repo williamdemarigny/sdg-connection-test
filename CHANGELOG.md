@@ -134,5 +134,5 @@ First public release.
     under absurd `--duration` values; the cap is well above any
     legitimate diagnostic use.
 
-[Unreleased]: https://github.com/williamdemarigny/sdg-connection-test/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/williamdemarigny/sdg-connection-test/releases/tag/v1.0.0
+[Unreleased]: https://github.com/sdg-net/sdg-connection-test/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/sdg-net/sdg-connection-test/releases/tag/v1.0.0
