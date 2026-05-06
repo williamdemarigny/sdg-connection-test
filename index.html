@@ -135,7 +135,7 @@
 
     <div class="download-card">
       <a class="download-button" href="https://github.com/sdg-net/sdg-connection-test/releases/latest">Download the latest release</a>
-      <p class="checksum">Latest: <strong>v1.0.0</strong> — SHA256 published on the release page.</p>
+      <p class="checksum">SHA256 checksums are published alongside each release on the GitHub releases page.</p>
     </div>
 
     <h2>How to run it</h2>
@@ -146,16 +146,26 @@
       <li>Run, substituting the host SDG gave you:
         <pre><code>node client/client.js --host &lt;server-given-by-SDG&gt;</code></pre>
       </li>
-      <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, wait ~90 seconds.</li>
-      <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back.</li>
+      <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, and wait. The default run takes about <strong>3-4 minutes</strong> &mdash; most of that is two 30+60 second &ldquo;NAT idle&rdquo; checks that have to wait the full interval to see whether your carrier's connection survives.</li>
+      <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back. Your public IP address is redacted in the report by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it.</li>
     </ol>
 
     <h2>What it does</h2>
-    <p>The client probes every TCP and UDP port that Space Engineers, Torch, and Steam actually use, measures reachability / loss / latency / MTU on each, and runs a 10-second sustained UDP traffic test that mimics real game traffic. Results print to the console and, on request, to a JSON file.</p>
+    <p>The client probes every TCP and UDP port that Space Engineers, Torch, and Steam actually use, then runs a battery of diagnostics targeting the specific ways internet providers (especially cellular and 5G home internet) commonly break online gaming. Results print to the console and, on request, to a JSON file.</p>
+    <p>The included tests, in plain English:</p>
+    <ul>
+      <li><strong>Reachability, loss, latency, and MTU</strong> on every game and Steam port. Catches obvious blocks and packet-size limits.</li>
+      <li><strong>Real Steam server query</strong> on UDP 27015 &mdash; the exact same query the Steam server browser makes.</li>
+      <li><strong>Game-shape sustained test</strong> &mdash; 10 seconds of traffic at the same packet rate and size distribution real Space Engineers uses, in both directions.</li>
+      <li><strong>NAT timeout check</strong> &mdash; finds out whether your carrier closes idle connections after 30 or 60 seconds. This is the most common cause of &ldquo;I get disconnected from the server every few minutes&rdquo; on T-Mobile 5G Home Internet.</li>
+      <li><strong>NAT type</strong> &mdash; classifies your network as &ldquo;cone&rdquo; (peer-to-peer works) or &ldquo;symmetric&rdquo; (peer-to-peer needs a relay).</li>
+      <li><strong>Burst-vs-steady</strong> &mdash; sends a quick burst of packets and a slow steady stream and compares the loss patterns. Distinguishes ISP throttling from random network loss.</li>
+      <li><strong>Source-port and payload-shape variation</strong> &mdash; detects whether your ISP is treating different connections or different kinds of game traffic differently.</li>
+    </ul>
     <p>It does <strong>not</strong> read your files, environment variables, browsing history, Steam install, or anything else off your machine. It only sends the test packets to the host you pass on the command line.</p>
 
     <h2>Why you can trust it</h2>
-    <p>The client is a single ~500-line JavaScript file with zero runtime dependencies and is deliberately written to be skimmable in ten minutes. Three layers of audit:</p>
+    <p>The client is a single ~2,200-line JavaScript file with zero runtime dependencies. The whole thing — client plus three small shared helpers — is about 2,600 lines of commented JavaScript and is written to be skimmable in about twenty minutes. Three layers of audit:</p>
     <ul>
       <li><strong>Read the source</strong> &mdash; <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/client/client.js">client/client.js</a> on GitHub. The <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/TRANSPARENCY.md">transparency notes</a> walk through what to <code>grep</code> for and what each match means.</li>
       <li><strong>Watch the packets</strong> &mdash; run with Wireshark capturing on your active NIC. Every outbound packet has the same 8-byte session nonce printed at startup, so you can filter by it. Every packet matches one of the layouts in the <a href="https://github.com/sdg-net/sdg-connection-test/blob/main/docs/PROTOCOL.md">protocol spec</a>.</li>
