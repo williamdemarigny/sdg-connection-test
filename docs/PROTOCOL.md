@@ -86,16 +86,21 @@ claims. The handshake is:
 1. Client sends `STREAM_BEGIN` (type 3, 36 bytes).
 2. Server replies with `STREAM_CHALLENGE` (type 6) containing a 16-byte
    HMAC token at offset 36. The token is
-   `HMAC-SHA256(secret, "stream" || ip || port || nonce || bucket)`
+   `HMAC-SHA256(secret, "stream" || ip || port || nonce || [direction] || bucket)`
    truncated to 16 bytes, where `bucket = floor(now / 30_000)` and
    `secret` is 32 random bytes generated at server start (never
-   persisted). Valid for the current and previous time bucket
-   (30-60 seconds).
+   persisted). The `direction` byte is included only when non-zero
+   (the up/both Phase 1 streams) — direction=down (the legacy v1.0.0
+   case) hashes WITHOUT the direction byte for full wire-compat.
+   Valid for the current and previous time bucket (30-60 seconds).
 3. Client sends `STREAM_CONFIRM` (type 7) echoing the same 16-byte
-   token at offset 36.
-4. Server verifies the token; if valid AND the per-IP/global stream
-   concurrency caps allow it, the 10-second stream of `STREAM_DATA`
-   packets begins.
+   token at offset 36, with the same direction code in flags byte 6.
+4. Server verifies the token using the direction byte from the
+   STREAM_CONFIRM. A token issued for direction=down does NOT verify
+   against a STREAM_CONFIRM with direction=up — captured tokens
+   cannot be cross-replayed across directions. If valid AND the
+   per-IP/global stream concurrency caps allow it, the 10-second
+   stream of `STREAM_DATA` packets begins.
 
 A spoofed source address never sees step 2 and therefore cannot forge
 step 3, so the stream never starts for traffic that was not actually

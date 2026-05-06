@@ -7,7 +7,7 @@ question a security-conscious player might have about the client.
 
 ## The short version
 
-The client is a single JavaScript file, around 1100 lines, that uses
+The client is a single JavaScript file, around 2,200 lines, that uses
 only Node.js built-in modules. It sends two kinds of packet: a small
 binary probe of our own design, and the standard public Steam
 A2S_INFO query. Every byte is documented in
@@ -15,7 +15,7 @@ A2S_INFO query. Every byte is documented in
 never reads environment variables, and never makes a network request
 to anything except the `--host` (and optional `--real-server`) you
 pass on the command line. The source is intended to be skimmable in
-fifteen minutes by anyone with basic JavaScript literacy.
+about twenty minutes by anyone with basic JavaScript literacy.
 
 ## What you should verify for yourself
 
@@ -27,7 +27,7 @@ The complete client is in [`../client/client.js`](../client/client.js),
 plus three tiny helpers in [`../shared/ports.js`](../shared/ports.js),
 [`../shared/protocol.js`](../shared/protocol.js), and
 [`../shared/netUtils.js`](../shared/netUtils.js). Together they are
-roughly 1500 lines of commented JavaScript.
+roughly 2,600 lines of commented JavaScript.
 
 Things to search for:
 

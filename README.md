@@ -39,6 +39,7 @@ server is permitted to do without needing its source.
 client/                  Zero-dep Node.js client + privacy-first README
 shared/ports.js          single source of truth for the port matrix
 shared/protocol.js       binary packet format, shared by client + server
+shared/netUtils.js       small IP / dgram helpers shared by client + server
 docs/PROTOCOL.md         byte-level wire protocol reference
 docs/SECURITY.md         server-side security model and hardening
 docs/PRIVACY.md          what the operator-deployed server may log
@@ -106,7 +107,7 @@ pass `--ports` to limit the per-port sweep.
 
 See [`client/README.md`](client/README.md) and
 [`docs/TRANSPARENCY.md`](docs/TRANSPARENCY.md). The client is a single
-~500-line JavaScript file with zero runtime dependencies. Paranoid
+~2,200-line JavaScript file with zero runtime dependencies. Paranoid
 players are actively encouraged to read it before running it.
 
 ## Zero runtime dependencies
@@ -114,6 +115,6 @@ players are actively encouraged to read it before running it.
 The client uses only Node.js built-ins. There is no `npm install` step.
 This is intentional: it keeps the client auditable and its supply chain
 minimal — the entire surface is the Node.js standard library plus the
-two small files in `shared/`.
+three small files in `shared/`.
 
 Required: **Node.js 20 or later**.

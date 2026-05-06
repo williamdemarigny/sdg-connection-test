@@ -162,6 +162,6 @@ If you stand up your own deployment, please:
 
 ## Changes
 
-This notice is versioned with the rest of the project. Material changes
-will be reflected in [`CHANGELOG.md`](../CHANGELOG.md) when that file is
-introduced. The current version corresponds to the project tag at HEAD.
+This notice is versioned with the rest of the project. Material
+changes are reflected in [`CHANGELOG.md`](../CHANGELOG.md). The
+current version corresponds to the project tag at HEAD.
