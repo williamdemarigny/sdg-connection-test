@@ -95,6 +95,27 @@
       padding: 24px;
       margin: 1.5em 0;
     }
+    .downloads {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 1.5em 0;
+    }
+    .downloads .download-card { margin: 0; }
+    .download-card h3 {
+      margin: 0 0 0.25em;
+      font-size: 1.1rem;
+    }
+    .card-tagline {
+      color: var(--muted);
+      font-size: 0.85em;
+      margin: 0 0 1em;
+    }
+    .card-detail {
+      color: var(--muted);
+      font-size: 0.9em;
+      margin: 0.75em 0 0;
+    }
     .download-button {
       display: inline-block;
       background: var(--accent);
@@ -104,12 +125,25 @@
       font-weight: 600;
       font-size: 1rem;
       text-decoration: none;
-      transition: background 0.15s;
+      transition: background 0.15s, color 0.15s;
     }
     .download-button:hover {
       background: var(--accent-hover);
       color: white;
       text-decoration: none;
+    }
+    .download-button-secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .download-button-secondary:hover {
+      background: var(--accent);
+      color: white;
+    }
+    h3 {
+      font-size: 1.05rem;
+      margin: 1.5em 0 0.5em;
     }
     .checksum {
       color: var(--muted);
@@ -133,21 +167,46 @@
     <h1>SDG Connection Test</h1>
     <p class="tagline">A small, auditable diagnostic for proving or disproving whether a specific ISP is blocking or throttling the UDP traffic that Space Engineers, Torch, and Steam depend on.</p>
 
-    <div class="download-card">
-      <a class="download-button" href="https://github.com/sdg-net/sdg-connection-test/releases/latest">Download the latest release</a>
-      <p class="checksum">SHA256 checksums are published alongside each release on the GitHub releases page.</p>
+    <!-- Asset URLs are pinned to the current version. Update both
+         <a href> values when cutting a new release. -->
+    <div class="downloads">
+      <div class="download-card">
+        <h3>Easy-install bundle</h3>
+        <p class="card-tagline">Windows &middot; double-click &middot; ~32 MiB &middot; no Node install needed</p>
+        <a class="download-button" href="https://github.com/sdg-net/sdg-connection-test/releases/latest/download/sdg-connection-test-v1.2.0-windows-x64.zip">Download for Windows</a>
+        <p class="card-detail">Recommended if you just want to run the test and send a report to support. Bundles Node.js 22 LTS so nothing else needs to be installed.</p>
+      </div>
+      <div class="download-card">
+        <h3>Source / developer</h3>
+        <p class="card-tagline">Linux &middot; macOS &middot; Windows &middot; ~100 KB &middot; bring your own Node 20+</p>
+        <a class="download-button download-button-secondary" href="https://github.com/sdg-net/sdg-connection-test/releases/latest/download/sdg-connection-test-v1.2.0.zip">Download source zip</a>
+        <p class="card-detail">For auditing the code, running on non-Windows systems, or pointing the client at your own test endpoint.</p>
+      </div>
     </div>
+    <p class="checksum">SHA256 checksums for both files are published on the <a href="https://github.com/sdg-net/sdg-connection-test/releases/latest">latest release page</a>.</p>
 
     <h2>How to run it</h2>
+
+    <h3>Easy-install (Windows, recommended for most)</h3>
+    <ol>
+      <li>Click <strong>Download for Windows</strong> above.</li>
+      <li>Right-click the downloaded zip and choose <strong>Extract All</strong>.</li>
+      <li>Open the extracted folder. Read <code>README - START HERE.txt</code> if you'd like the same instructions in writing, then double-click <code>Run-Test.cmd</code>.</li>
+      <li>A black console window opens. Wait about <strong>3-4 minutes</strong> &mdash; most of that is two 30+60 second &ldquo;NAT idle&rdquo; checks that have to wait the full interval to see whether your carrier's connection survives. Do not close the window; it closes itself when finished.</li>
+      <li>When it finishes, a file named <code>sdg-test-report-&lt;timestamp&gt;.json</code> appears on your Desktop. Attach that file to your SDG support ticket.</li>
+    </ol>
+    <p>If Windows shows a &ldquo;protected your PC&rdquo; warning, click <strong>More info</strong> then <strong>Run anyway</strong>. The bundle is unsigned; the SHA256 checksum on the release page lets you verify it before running. Your public IP address is redacted in the report and on screen by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it (this requires running from a terminal &mdash; see the developer path below).</p>
+
+    <h3>Source / developer (Linux, macOS, or hands-on Windows)</h3>
     <ol>
       <li>Install <a href="https://nodejs.org/en/download">Node.js 20 or later</a> (LTS is fine).</li>
-      <li>Download the release zip above and unzip it.</li>
+      <li>Click <strong>Download source zip</strong> above and unzip it, or <code>git clone</code> the <a href="https://github.com/sdg-net/sdg-connection-test">repository</a>.</li>
       <li>Open a terminal (PowerShell, cmd, or bash) in the unzipped folder.</li>
       <li>Run, substituting the host SDG gave you:
         <pre><code>node client/client.js --host &lt;server-given-by-SDG&gt;</code></pre>
       </li>
-      <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, and wait. The default run takes about <strong>3-4 minutes</strong> &mdash; most of that is two 30+60 second &ldquo;NAT idle&rdquo; checks that have to wait the full interval to see whether your carrier's connection survives.</li>
-      <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back. Your public IP address is redacted in the report by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it.</li>
+      <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, and wait. The default run takes about <strong>3-4 minutes</strong>.</li>
+      <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back. Your public IP is redacted in both the console output and the report by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it.</li>
     </ol>
 
     <h2>What it does</h2>
