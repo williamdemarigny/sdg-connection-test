@@ -159,8 +159,8 @@ test('Phase 1+2 diagnostics default to ON — customer-friendly default', () => 
   assert.equal(o.sourcePortFanout, true);
   assert.equal(o.payloadShape, true);
   // includePublicIp stays default-OFF for privacy: reflection is run
-  // by default, but the reflected public IP is redacted in any JSON
-  // report unless the operator opts in.
+  // by default, but the reflected public IP is redacted in both the
+  // console output and any JSON report unless the operator opts in.
   assert.equal(o.includePublicIp, false);
 });
 

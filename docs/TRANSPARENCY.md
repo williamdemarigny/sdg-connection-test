@@ -115,9 +115,11 @@ Instead, we:
      socket to two destinations and compares the source port the
      server reports observing. Same port → cone NAT (peer-to-peer
      works). Different port → symmetric NAT (peer-to-peer needs a
-     relay). Reflected public IP is **redacted by default** in any
-     `--json` report because the README invites support sharing of
-     reports; pass `--include-public-ip` to include it.
+     relay). Reflected public IP is **redacted by default** in both
+     the console output and any `--json` report, because the README
+     invites support sharing of reports and support flows commonly
+     involve pasting the console transcript into a ticket; pass
+     `--include-public-ip` to include it.
    - **Bidirectional sustained stream** — the legacy sustained test
      was downstream-only. The bidirectional variant adds a
      client-emits-server-tallies upstream phase so uplink-only
