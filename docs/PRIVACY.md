@@ -64,13 +64,15 @@ behind many "I can't host or join games" reports.
 - **No new logging.** The reflected endpoint is in the *reply payload*,
   not added to the session log. The session log already records
   `srcIp`; reflection does not change what the operator can see.
-- **Client-side redaction.** The reflected public IP appears in the
-  client's `--json` report. Because the README invites users to share
-  reports for support, the client redacts the host portion of the
-  reflected IP by default (`1.2.3.4` → `1.2.3.x`; the first 32 bits of
-  IPv6 are preserved for ASN correlation, the rest dropped). Users can
-  pass `--include-public-ip` to opt into a non-redacted report when
-  full disclosure is desired.
+- **Client-side redaction.** The reflected public IP appears in both
+  the client's console output and its `--json` report. Because the
+  README invites users to share reports for support — and support flows
+  commonly involve pasting the console transcript into a ticket — the
+  client redacts the host portion of the reflected IP by default in
+  both channels (`1.2.3.4` → `1.2.3.x`; the first 32 bits of IPv6 are
+  preserved for ASN correlation, the rest dropped). Users can pass
+  `--include-public-ip` to opt into non-redacted output when full
+  disclosure is desired.
 
 ### Bidirectional sustained test (`--bidir up|both`)
 

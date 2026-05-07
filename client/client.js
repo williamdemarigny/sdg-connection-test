@@ -144,7 +144,7 @@ function parseArgs(argv) {
     bidir: 'both',            // 'down' (legacy), 'up', or 'both'
     burst: true,
     upPps: UP_PPS_DEFAULT,
-    includePublicIp: false,   // redact reflected IP in JSON unless set
+    includePublicIp: false,   // redact reflected IP in console + JSON unless set
     // Phase 2 defaults — also ON. Costs ~30s combined and surfaces
     // failure modes the L3/L4 + Phase 1 sweep misses (per-flow
     // shaping, DPI by payload signature, loss-burst patterns).
@@ -280,9 +280,11 @@ Phase 1 diagnostics (ON by default — every customer run includes them):
   --nat-idle <s1,s2,...>   Custom NAT idle ladder. Overrides the default.
   --up-pps <n>             Upstream rate when --bidir != down. Default 60,
                            cap ${UP_PPS_MAX}.
-  --include-public-ip      Include the full reflected source IP in the
-                           JSON report. Default: redact the host portion
-                           so reports can be shared safely.
+  --include-public-ip      Include the full reflected source IP in both
+                           the console output and the JSON report.
+                           Default: redact the host portion so reports
+                           and pasted console transcripts can be shared
+                           safely.
 
 Phase 2 diagnostics (ON by default — adds ~30 s):
   --no-source-fanout       Skip the source-port fan-out test, which sends
@@ -591,11 +593,13 @@ function classifyPayloadShape(perPatternLoss) {
   return { kind: 'mild-variance', reason: `loss spread ${spread.toFixed(1)}% across payload shapes — borderline` };
 }
 
-// Redact a public IP for inclusion in a shared report. The README
-// invites users to share their JSON report with operators for support;
-// the reflected source IP is therefore now potentially a shared
-// identifier. Default behavior is to redact the host portion; full IP
-// is opt-in via `--include-public-ip`.
+// Redact a public IP for inclusion in any output channel that may be
+// shared. The README invites users to share their JSON report — and
+// support flows commonly involve pasting the console transcript into
+// a ticket — so the reflected source IP is potentially a shared
+// identifier in either output. Default behavior is to redact the host
+// portion in both console and JSON; full IP is opt-in via
+// `--include-public-ip`.
 //
 //   redactIp('1.2.3.4',     false) -> '1.2.3.x'
 //   redactIp('1.2.3.4',     true)  -> '1.2.3.4'
@@ -1987,7 +1991,7 @@ async function runTests(opts) {
 }
 
 // ---- Pretty table ----
-function printTable(report) {
+function printTable(report, { includePublicIp = false } = {}) {
   console.log('');
   console.log('================================================================');
   console.log('RESULTS');
@@ -2040,14 +2044,15 @@ function printTable(report) {
     if (t.ok) {
       console.log('');
       console.log(`NAT type: ${t.verdict.kind} — ${natTypeImpact(t.verdict)}`);
-      // Console output shows the full reflected IPs (it's the user's
-      // own machine — they already know it). Only the JSON report is
-      // redacted by default.
+      // Console output redacts the host portion by default for the same
+      // reason the JSON does: customers paste this window into support
+      // tickets, so the reflected public IP shouldn't leave the machine
+      // unless the user opts in via --include-public-ip.
       if (t.reflectionA && t.reflectionA.ok) {
-        console.log(`  reflected at ${t.portA}: ${t.reflectionA.address}:${t.reflectionA.port}`);
+        console.log(`  reflected at ${t.portA}: ${redactIp(t.reflectionA.address, includePublicIp)}:${t.reflectionA.port}`);
       }
       if (t.reflectionB && t.reflectionB.ok) {
-        console.log(`  reflected at ${t.portB}: ${t.reflectionB.address}:${t.reflectionB.port}`);
+        console.log(`  reflected at ${t.portB}: ${redactIp(t.reflectionB.address, includePublicIp)}:${t.reflectionB.port}`);
       }
     }
   }
@@ -2143,11 +2148,10 @@ function printTable(report) {
   console.log('');
 }
 
-// Apply privacy redaction to a report before writing it to disk. The
-// console output is unredacted — the user is looking at their own
-// machine. The JSON, however, is invited to be shared, so we redact
-// the host portion of any reflected public IP unless the user opts in
-// with --include-public-ip.
+// Apply privacy redaction to a report before writing it to disk.
+// Both the console output (see printTable) and the JSON file redact
+// the host portion of any reflected public IP by default; pass
+// --include-public-ip to opt out in both channels at once.
 function redactReportForJson(report, includeFull) {
   if (includeFull) return report;
   // Shallow clone everything we touch; the rest can share refs since
@@ -2214,7 +2218,7 @@ async function main() {
   console.log('');
 
   const report = await runTests(opts);
-  printTable(report);
+  printTable(report, { includePublicIp: opts.includePublicIp });
 
   if (opts.json) {
     const jsonReport = redactReportForJson(report, opts.includePublicIp);
