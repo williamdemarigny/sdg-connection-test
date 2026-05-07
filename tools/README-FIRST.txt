@@ -1,42 +1,64 @@
-SDG Connection Test - Easy Run Bundle
-======================================
+SDG CONNECTION TEST
+===================
 
-WHAT THIS DOES
-  Tests whether your internet connection has trouble reaching the SDG
-  Space Engineers test server. The test sends harmless UDP traffic that
-  looks like the game's own traffic and reports back what got through.
+This tool checks whether your internet connection has trouble reaching
+the SDG Space Engineers test server. It sends harmless UDP traffic
+that looks like the game's own traffic and reports back what got
+through.
 
-HOW TO RUN
-  1. Make sure you are connected to the network you want to test
+
+HOW TO RUN IT
+-------------
+  1. Make sure you're connected to the network you want to test
      (the same Wi-Fi or wired connection you use to play).
-  2. Double-click "Run-Test.cmd".
-  3. A black window will open and run for about 3 to 4 minutes.
-     Do NOT close it - it closes itself when finished.
-  4. When it finishes you will see a message like:
-        Report saved to: C:\Users\<you>\Desktop\sdg-test-report-...json
-  5. Copy that file from your Desktop to a SDG support ticket.
+  2. Double-click "Run-Test.cmd" in this folder.
+  3. A black window opens and runs for about 3 to 4 minutes.
+     DO NOT close it - it closes itself when finished.
+  4. When it finishes you'll see a line like this:
+            Report saved to:
+              C:\Users\<you>\Desktop\sdg-test-report-...json
+  5. Copy that file from your Desktop into a SDG support ticket.
+
+  That's it. You're done.
+
+
+WHAT'S IN THIS FOLDER
+---------------------
+  Run-Test.cmd       - the launcher. Double-click this.
+  config.txt         - the SDG server address. Do NOT edit unless
+                       SDG support tells you to.
+  app\               - the test program. You don't need to open it.
+  LICENSE.txt        - the MIT license this tool is shipped under.
+
 
 REQUIREMENTS
+------------
   - Windows 10 or Windows 11, 64-bit.
-  - About 100 MB of free disk space (this folder).
   - Outbound UDP allowed (most home connections; corporate firewalls
     may block the test).
 
-TROUBLESHOOTING
-  - "Windows protected your PC": click "More info", then "Run anyway".
-    The bundle is unsigned. If you want to verify it, the SHA256 of
-    this download is published on the SDG release page.
-  - The window closes immediately: open it from a Command Prompt
-    instead so you can read any error messages, and send those to
-    support.
-  - "config.txt is missing": re-download the bundle.
 
-ADVANCED
-  config.txt holds the target server address. Do not edit it unless
-  SDG support tells you to.
+TROUBLESHOOTING
+---------------
+  "Windows protected your PC" warning
+      Click "More info" then "Run anyway". This bundle is unsigned;
+      the SHA256 hash of the download is published on the SDG release
+      page if you want to verify it before running.
+
+  The window closes immediately
+      Open a Command Prompt, drag "Run-Test.cmd" into it, and press
+      Enter. The error will stay on screen for you to read or send
+      to support.
+
+  "config.txt is missing"
+      Re-download the bundle from the SDG release page.
+
 
 PRIVACY
-  The report contains your local network test results and a redacted
-  form of your public IP address (for example "1.2.3.x"). It does
-  NOT contain personal files, browsing history, or anything outside
-  this connection test. Full details are in docs\PRIVACY.md.
+-------
+  The report file contains: per-port test results (round-trip time,
+  packet loss, MTU), NAT type, and a REDACTED form of your public IP
+  (e.g. "1.2.3.x" - the last octet is dropped). It does NOT contain
+  personal files, browsing history, or anything outside this
+  connection test. You can open the report in any text editor before
+  sending it - it's plain JSON.

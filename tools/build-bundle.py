@@ -3,11 +3,18 @@
 
 Produces: dist/sdg-connection-test-<version>-windows-x64.zip
 
-The bundle wraps:
-  - The tracked source tree at HEAD (extracted via `git archive`).
-  - A pinned Node.js Windows runtime (node.exe only).
-  - Run-Test.cmd launcher and README-FIRST.txt user guide from tools/.
-  - A config.txt with TARGET_HOST set from --host.
+Layout (slim — non-technical customer:
+
+  sdg-connection-test/
+    README - START HERE.txt
+    Run-Test.cmd
+    config.txt
+    LICENSE.txt
+    app/
+      node.exe
+      NODEJS-LICENSE.txt
+      client/client.js
+      shared/{netUtils,ports,protocol}.js
 
 Run from anywhere inside the repo:
   python tools/build-bundle.py --host 38.107.232.39
@@ -16,6 +23,9 @@ Optional flags:
   --version vX.Y.Z   Override version (default: `git describe --tags --abbrev=0`).
   --node-version vX.Y.Z   Override pinned Node version (default below).
   --output PATH      Override output zip path.
+
+Files are copied from the working tree, not `git archive HEAD`. Make sure
+your working tree matches what you want to ship.
 """
 
 from __future__ import annotations
@@ -40,9 +50,16 @@ TOOLS_DIR = REPO_ROOT / "tools"
 CACHE_DIR = TOOLS_DIR / "cache"
 DIST_DIR = REPO_ROOT / "dist"
 
-
-def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, check=True, cwd=REPO_ROOT, **kw)
+# Files copied from the source tree into <bundle>/app/. Anything not in
+# this list is dropped — the goal is a customer bundle that contains
+# only what's needed at run time, not dev docs, tests, or package
+# metadata.
+APP_FILES = [
+    "client/client.js",
+    "shared/netUtils.js",
+    "shared/ports.js",
+    "shared/protocol.js",
+]
 
 
 def detect_version() -> str:
@@ -94,47 +111,27 @@ def download_node(node_version: str, expected_sha256: str) -> Path:
     return out
 
 
-def extract_node_exe(node_zip: Path, dest_dir: Path, node_version: str) -> None:
-    """Pull just node.exe and the upstream LICENSE file out of the Node zip."""
+def extract_node(node_zip: Path, app_dir: Path, node_version: str) -> None:
+    """Pull just node.exe (as app/node.exe) and Node's MIT LICENSE
+    (as app/NODEJS-LICENSE.txt) out of the upstream Node zip."""
     inner_root = f"node-{node_version}-win-x64"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    app_dir.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(node_zip) as z:
-        node_member = f"{inner_root}/node.exe"
-        license_member = f"{inner_root}/LICENSE"
-        with z.open(node_member) as src, (dest_dir / "node.exe").open("wb") as dst:
+        with z.open(f"{inner_root}/node.exe") as src, (app_dir / "node.exe").open("wb") as dst:
             shutil.copyfileobj(src, dst)
-        with z.open(license_member) as src, (dest_dir / "LICENSE-node.txt").open("wb") as dst:
+        with z.open(f"{inner_root}/LICENSE") as src, (app_dir / "NODEJS-LICENSE.txt").open("wb") as dst:
             shutil.copyfileobj(src, dst)
 
 
-def stage_repo(stage_root: Path, from_worktree: bool) -> None:
-    """Stage tracked files into stage_root.
-
-    Default uses `git archive HEAD` so release builds are reproducible
-    from the commit alone. Pass from_worktree=True during development
-    to include uncommitted edits to tracked files.
-    """
-    stage_root.mkdir(parents=True, exist_ok=True)
-    if from_worktree:
-        r = subprocess.run(
-            ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True,
-        )
-        for rel in r.stdout.splitlines():
-            if not rel:
-                continue
-            src = REPO_ROOT / rel
-            dst = stage_root / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        return
-    archive_zip = stage_root.parent / "_repo.zip"
-    if archive_zip.exists():
-        archive_zip.unlink()
-    run(["git", "archive", "--format=zip", "-o", str(archive_zip), "HEAD"])
-    with zipfile.ZipFile(archive_zip) as z:
-        z.extractall(stage_root)
-    archive_zip.unlink()
+def stage_app(stage_root: Path) -> None:
+    """Copy runtime-essential source files into <stage_root>/app/."""
+    app_dir = stage_root / "app"
+    for rel in APP_FILES:
+        src = REPO_ROOT / rel
+        dst = app_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
 
 
 def write_config(stage_root: Path, target_host: str) -> None:
@@ -153,8 +150,10 @@ def write_config(stage_root: Path, target_host: str) -> None:
 
 
 def write_top_files(stage_root: Path) -> None:
+    """Drop the four user-facing files at the bundle root."""
     shutil.copy2(TOOLS_DIR / "Run-Test.cmd", stage_root / "Run-Test.cmd")
-    shutil.copy2(TOOLS_DIR / "README-FIRST.txt", stage_root / "README-FIRST.txt")
+    shutil.copy2(TOOLS_DIR / "README-FIRST.txt", stage_root / "README - START HERE.txt")
+    shutil.copy2(REPO_ROOT / "LICENSE", stage_root / "LICENSE.txt")
 
 
 def make_zip(stage_parent: Path, top_dir_name: str, out_zip: Path) -> None:
@@ -181,7 +180,7 @@ def main() -> int:
     ap.add_argument("--host", required=True,
                     help="Target server IP or hostname baked into config.txt")
     ap.add_argument("--version", default=None,
-                    help="Bundle version, e.g. v1.1.0 (default: latest git tag)")
+                    help="Bundle version, e.g. v1.2.0 (default: latest git tag)")
     ap.add_argument("--node-version", default=NODE_VERSION_DEFAULT,
                     help=f"Node.js version to bundle (default: {NODE_VERSION_DEFAULT})")
     ap.add_argument("--node-sha256", default=NODE_WIN_X64_SHA256,
@@ -189,9 +188,6 @@ def main() -> int:
     ap.add_argument("--output", default=None, help="Override output zip path")
     ap.add_argument("--keep-stage", action="store_true",
                     help="Keep the staging dir after build (for debugging)")
-    ap.add_argument("--worktree", action="store_true",
-                    help="Stage tracked files from the working tree instead of "
-                         "git archive HEAD (use during development)")
     args = ap.parse_args()
 
     version = args.version or detect_version()
@@ -214,8 +210,8 @@ def main() -> int:
     print(f"[build] output       : {out_zip}")
 
     node_zip = download_node(args.node_version, args.node_sha256)
-    stage_repo(stage_root, from_worktree=args.worktree)
-    extract_node_exe(node_zip, stage_root / "runtime", args.node_version)
+    stage_app(stage_root)
+    extract_node(node_zip, stage_root / "app", args.node_version)
     write_config(stage_root, args.host)
     write_top_files(stage_root)
     make_zip(stage_parent, top_dir_name, out_zip)

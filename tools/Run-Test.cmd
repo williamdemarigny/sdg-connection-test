@@ -34,11 +34,11 @@ if not defined TARGET_HOST (
     exit /b 1
 )
 
-set "NODE_EXE=%~dp0runtime\node.exe"
-set "CLIENT_JS=%~dp0client\client.js"
+set "NODE_EXE=%~dp0app\node.exe"
+set "CLIENT_JS=%~dp0app\client\client.js"
 
 if not exist "%NODE_EXE%" (
-    echo ERROR: bundled Node runtime not found at runtime\node.exe
+    echo ERROR: bundled Node runtime not found at app\node.exe
     echo The bundle appears incomplete. Please re-download.
     echo.
     pause
@@ -46,7 +46,7 @@ if not exist "%NODE_EXE%" (
 )
 
 if not exist "%CLIENT_JS%" (
-    echo ERROR: client.js not found at client\client.js
+    echo ERROR: client.js not found at app\client\client.js
     echo The bundle appears incomplete. Please re-download.
     echo.
     pause
@@ -87,7 +87,7 @@ if %RC% EQU 0 (
     echo   Test complete. Report saved to:
     echo   %REPORT%
     echo.
-    echo   Please email this file to SDG support.
+    echo   Please attach this file to your SDG support ticket.
 ) else (
     echo   Test exited with code %RC%.
     if exist "%REPORT%" (
