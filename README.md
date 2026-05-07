@@ -96,8 +96,8 @@ complaint pattern).
 The server-dependent tests (`nat-type` and `bidir up/both`)
 gracefully degrade against a v1.0.0 server: the client probes for
 support and prints `SKIPPED (server too old)` if not present.
-Reflected public IP in the `--json` report is redacted by default —
-pass `--include-public-ip` to opt in.
+Reflected public IP is redacted by default in both the console output
+and the `--json` report — pass `--include-public-ip` to opt in.
 
 To dial back: `--no-nat-idle`, `--no-nat-type`, `--no-burst`,
 `--no-source-fanout`, `--no-payload-shape`, `--bidir down`, or

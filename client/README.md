@@ -30,8 +30,9 @@ do, and tells you how to verify that for yourself.
    for the longer NAT-idle ladder (which adds ~7 minutes).
 8. Read the results table. If SDG asked for a JSON report, re-run with
    `--json report.json` and send them the file. The reflected public
-   IP is redacted by default; pass `--include-public-ip` only if SDG
-   support specifically asks for it.
+   IP is redacted by default in both the console output and the JSON
+   report; pass `--include-public-ip` only if SDG support specifically
+   asks for it.
 
 Full options:
 
@@ -194,7 +195,9 @@ idle ladder.
 --nat-idle <s1,s2,...>   Custom NAT idle ladder. Overrides the default.
 --up-pps <n>             Upstream packet rate when --bidir != down
                          (default 60, cap 200).
---include-public-ip      Include the full reflected public IP in the
-                         --json report. Default is to redact the host
-                         portion so reports can be shared safely.
+--include-public-ip      Include the full reflected public IP in both
+                         the console output and the --json report.
+                         Default is to redact the host portion so
+                         reports and pasted console transcripts can be
+                         shared safely.
 ```
