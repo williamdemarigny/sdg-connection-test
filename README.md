@@ -44,31 +44,61 @@ docs/PROTOCOL.md         byte-level wire protocol reference
 docs/SECURITY.md         server-side security model and hardening
 docs/PRIVACY.md          what the operator-deployed server may log
 docs/TRANSPARENCY.md     for security-conscious players
+tools/build-bundle.py    builds the Windows easy-install zip
+tools/Run-Test.cmd       launcher that ships inside the easy-install zip
+tools/README-FIRST.txt   user guide that ships inside the easy-install zip
 ```
 
-## Download
+## Getting the client
 
-Customer-facing download page: <https://sdg.knowledgeondemand.net>
+Two builds, same diagnostic, same results — pick whichever fits your
+situation:
 
-Direct release link: [latest GitHub Release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
+| | **Windows easy-install** | **Source / developer** |
+| --- | --- | --- |
+| For | End users, players debugging connection issues, support tickets, non-technical staff | Auditing, contributors, Linux / macOS, anyone running against their own test endpoint |
+| Asset | `sdg-connection-test-vX.Y.Z-windows-x64.zip` (~32 MiB) | `sdg-connection-test-vX.Y.Z.zip` (~100 KB) |
+| Includes | Pre-bundled Node.js 22 LTS runtime, double-click launcher | Source only — bring your own Node 20+ |
+| To run | Double-click `Run-Test.cmd`; report lands on your Desktop | `node client/client.js --host <host> --yes` |
 
-## Running the client
+Both are attached to every [GitHub Release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
+Customer-facing download portal: <https://sdg.knowledgeondemand.net>
+
+### Windows easy-install (recommended for end users)
+
+1. Download `sdg-connection-test-vX.Y.Z-windows-x64.zip` from the
+   [latest release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
+2. Right-click → **Extract All**.
+3. Open the extracted folder and double-click `Run-Test.cmd`. A console
+   window opens.
+4. Wait ~3–4 minutes. The console shows the verdict and a JSON report
+   is written to your Desktop as `sdg-test-report-<timestamp>.json`.
+5. Attach that JSON file to your SDG support ticket.
+
+Read `README - START HERE.txt` inside the bundle for the same
+instructions plus troubleshooting (SmartScreen warnings, etc.). The
+target server address lives in `config.txt` and is normally not
+something you need to touch.
+
+### Source / developer
 
 ```
-cd client
+# Either: download the source-only zip from the latest release and unzip,
+# or:
+git clone https://github.com/sdg-net/sdg-connection-test.git
+cd sdg-connection-test/client
 node client.js --host <operator-supplied-host> --yes
 ```
 
-Every row should come back green. Loss > 0 indicates a problem; the
-client distinguishes ISP loss from server-side rate-limiting in the
-`RL` column so the limiter never causes a false positive against the
-ISP under test.
+Add `--json report.json` to also write a JSON report. Zero `npm install`
+step — the project ships with no dependencies.
 
-To run the full test against a JSON report:
+## Reading the output
 
-```
-node client.js --host <host> --json report.json
-```
+Every row in the per-port table should come back green. Loss > 0
+indicates a problem; the client distinguishes ISP loss from server-side
+rate-limiting in the `RL` column so the limiter never causes a false
+positive against the ISP under test.
 
 ### Diagnostics included in every default run
 
@@ -117,4 +147,6 @@ This is intentional: it keeps the client auditable and its supply chain
 minimal — the entire surface is the Node.js standard library plus the
 three small files in `shared/`.
 
-Required: **Node.js 20 or later**.
+For the source / developer install, you need **Node.js 20 or later**.
+The Windows easy-install bundle ships with a pinned Node.js 22 LTS
+runtime so end users don't need to install anything.
