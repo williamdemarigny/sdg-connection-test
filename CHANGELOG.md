@@ -16,6 +16,35 @@ guaranteed.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-06
+
+### Added
+- **Windows easy-install bundle.** A self-contained zip aimed at
+  non-technical customers: unzip, double-click `Run-Test.cmd`, wait
+  3-4 minutes, find a timestamped JSON report on the Desktop ready
+  to attach to a support ticket. Bundles a pinned Node.js 22 LTS
+  runtime so no Node install is required. Target server is read at
+  run time from `config.txt`, so it can be rotated without rebuilding
+  the bundle. Build script lives at [`tools/build-bundle.py`](tools/build-bundle.py)
+  and produces `sdg-connection-test-<version>-windows-x64.zip` (~31.6
+  MiB).
+
+### Fixed
+- **Privacy: redact reflected public IP in console output.** The
+  console previously printed the full reflected source IP (e.g.
+  `136.51.83.236:60787`) under the NAT type test, on the assumption
+  that the screen is the user's own machine. Support flows commonly
+  involve customers pasting the console transcript into a ticket, so
+  the client now applies the same redaction the JSON report already
+  uses, governed by the same `--include-public-ip` flag. Default
+  output is now `136.51.83.x` in both channels.
+
+### Changed
+- Bumped `client/package.json` and `shared/package.json` versions to
+  1.2.0 to match the release tag. (These were left at 1.0.0 through
+  v1.1.0 — no functional impact since the project ships zero npm
+  dependencies, but worth syncing now.)
+
 ## [1.1.0] — 2026-05-06
 
 ### Added — Phase 2 diagnostics
@@ -252,6 +281,7 @@ First public release.
     under absurd `--duration` values; the cap is well above any
     legitimate diagnostic use.
 
-[Unreleased]: https://github.com/sdg-net/sdg-connection-test/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/sdg-net/sdg-connection-test/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/sdg-net/sdg-connection-test/releases/tag/v1.2.0
 [1.1.0]: https://github.com/sdg-net/sdg-connection-test/releases/tag/v1.1.0
 [1.0.0]: https://github.com/sdg-net/sdg-connection-test/releases/tag/v1.0.0
