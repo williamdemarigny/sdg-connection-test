@@ -59,7 +59,7 @@ situation:
 | For | End users, players debugging connection issues, support tickets, non-technical staff | Auditing, contributors, Linux / macOS, anyone running against their own test endpoint |
 | Asset | `sdg-connection-test-vX.Y.Z-windows-x64.zip` (~32 MiB) | `sdg-connection-test-vX.Y.Z.zip` (~100 KB) |
 | Includes | Pre-bundled Node.js 22 LTS runtime, double-click launcher | Source only — bring your own Node 20+ |
-| To run | Double-click `Run-Test.cmd`; report lands on your Desktop | `node client/client.js --host <host> --yes` |
+| To run | Double-click `Run-Test.cmd`; report lands on your Desktop | `node client/client.js --yes` (defaults to `38.107.232.39`) |
 
 Both are attached to every [GitHub Release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
 Customer-facing download portal: <https://sdg.knowledgeondemand.net>
@@ -87,8 +87,13 @@ something you need to touch.
 # or:
 git clone https://github.com/sdg-net/sdg-connection-test.git
 cd sdg-connection-test/client
-node client.js --host <operator-supplied-host> --yes
+node client.js --yes
 ```
+
+`--host` defaults to `38.107.232.39` (SDG's public connection-test
+endpoint), so unzip-and-run requires no flags. Override only if SDG
+support has given you a different endpoint, e.g.
+`node client.js --host 38.107.232.39 --yes`.
 
 Add `--json report.json` to also write a JSON report. Zero `npm install`
 step — the project ships with no dependencies.

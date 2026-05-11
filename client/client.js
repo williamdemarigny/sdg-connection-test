@@ -120,9 +120,19 @@ const UP_PPS_DEFAULT = 60;
 const UP_PPS_MAX     = 200;
 
 // ---- CLI parsing: tiny, no deps, no getopt. ----
+//
+// Default --host is the SDG-operated public test endpoint. The whole point
+// of the customer-facing client is "unzip, run, send results to support",
+// so requiring an extra flag is friction. SDG support can still tell a
+// customer to override with --host if a side-by-side test is needed against
+// a different endpoint. The Windows easy-install bundle still passes
+// --host explicitly from config.txt, so this default only affects the
+// source/developer path.
+const DEFAULT_HOST = '38.107.232.39';
+
 function parseArgs(argv) {
   const out = {
-    host: null,
+    host: DEFAULT_HOST,
     ports: null,              // null = all
     sustained: true,
     a2s: true,
@@ -238,12 +248,14 @@ function printHelp() {
   console.log(`SDG Connection Test — client
 
 Usage:
-  node client.js --host <hostname-or-ip> [options]
+  node client.js [options]
 
-Required:
-  --host <addr>            SDG connection-test server to probe.
+Default target:
+  --host defaults to ${DEFAULT_HOST} (SDG's public connection-test server).
+  Pass --host explicitly only if SDG support gave you a different endpoint.
 
 Options:
+  --host <addr>            Override the default SDG test server.
   --ports <p1,p2,...>      Only test these port numbers (comma-separated).
                            Matches both proto if both are in the table.
   --no-sustained           Skip the 10-second UDP 27016 game-shape test.
@@ -300,8 +312,10 @@ Loss-burst histogram and reordering counts are added to every UDP
 loss test and sustained run automatically — no flag needed; they're
 free metrics derived from data we already collect.
 
-Example:
-  node client.js --host test.sdgservers.example --json report.json
+Examples:
+  node client.js                                  # use the default SDG endpoint
+  node client.js --json report.json               # also write a JSON report
+  node client.js --host test.sdgservers.example   # override the endpoint
 
 The tool will print exactly what it is about to do before doing it, and
 wait for you to press 'y' unless you pass --yes.
@@ -2177,7 +2191,7 @@ function redactReportForJson(report, includeFull) {
 // ---- Main ----
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (opts.help || !opts.host) { printHelp(); process.exit(opts.help ? 0 : 1); }
+  if (opts.help) { printHelp(); process.exit(0); }
 
   console.log('SDG Connection Test — client');
   console.log('----------------------------');

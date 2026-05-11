@@ -26,7 +26,15 @@ do, and tells you how to verify that for yourself.
 4. Run:
 
    ```
-   node client/client.js --host <server-given-by-SDG>
+   node client/client.js
+   ```
+
+   The default SDG test server is `38.107.232.39`, baked in — you do not
+   need to pass `--host` unless SDG support has given you a different
+   endpoint to test against. If they did, pass it explicitly:
+
+   ```
+   node client/client.js --host 38.107.232.39
    ```
 
 5. Review the "what this will do" summary the tool prints. It includes
@@ -168,7 +176,10 @@ Choose one or more of:
 ## Command-line options
 
 ```
---host <addr>            SDG server to probe (required).
+--host <addr>            SDG server to probe. Defaults to 38.107.232.39
+                         (the public SDG connection-test endpoint); pass
+                         this flag only if SDG support has given you a
+                         different endpoint.
 --ports <p1,p2,...>      Only test these port numbers.
 --no-sustained           Skip the 10-second UDP 27016 game-shape test.
 --no-a2s                 Skip the Steam A2S query test.

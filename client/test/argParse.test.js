@@ -14,9 +14,12 @@ function mute(fn) {
   };
 }
 
-test('defaults: no flags → host=null, sustained=true, a2s=true, family=auto', () => {
+test('defaults: no flags → host=SDG public IP, sustained=true, a2s=true, family=auto', () => {
   const o = parseArgs([]);
-  assert.equal(o.host, null);
+  // The customer-facing default is SDG's public connection-test endpoint
+  // so an unzip-and-run experience needs no flags. Override with --host
+  // is still tested below.
+  assert.equal(o.host, '38.107.232.39');
   assert.equal(o.sustained, true);
   assert.equal(o.a2s, true);
   assert.equal(o.realServer, null);
