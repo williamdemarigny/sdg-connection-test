@@ -53,7 +53,12 @@ if not exist "%CLIENT_JS%" (
     exit /b 1
 )
 
-rem Build a timestamped report path on the user's Desktop.
+rem Build a timestamped report path next to this script. Writing to the
+rem script's own folder dodges every Desktop-resolution edge case
+rem (OneDrive Known Folder Move, group-policy redirection, sign-in-as-
+rem different-user). The user already extracted the bundle into a
+rem folder they can find — drop the report there.
+rem
 rem Use the bundled Node via a temp file to dodge cmd's for /f quoting
 rem problems (and wmic, which is removed on Windows 11 24H2+).
 set "TS_FILE=%TEMP%\sdg-ts-%RANDOM%.txt"
@@ -62,8 +67,7 @@ set "TS="
 if exist "%TS_FILE%" set /p "TS="<"%TS_FILE%"
 if exist "%TS_FILE%" del "%TS_FILE%" 2>nul
 if not defined TS set "TS=run"
-set "DESKTOP=%USERPROFILE%\Desktop"
-set "REPORT=%DESKTOP%\sdg-test-report-%TS%.json"
+set "REPORT=%~dp0sdg-test-report-%TS%.json"
 
 echo ============================================================
 echo   SDG Connection Test

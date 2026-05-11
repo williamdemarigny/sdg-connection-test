@@ -59,7 +59,7 @@ situation:
 | For | End users, players debugging connection issues, support tickets, non-technical staff | Auditing, contributors, Linux / macOS, anyone running against their own test endpoint |
 | Asset | `sdg-connection-test-vX.Y.Z-windows-x64.zip` (~32 MiB) | `sdg-connection-test-vX.Y.Z.zip` (~100 KB) |
 | Includes | Pre-bundled Node.js 22 LTS runtime, double-click launcher | Source only — bring your own Node 20+ |
-| To run | Double-click `Run-Test.cmd`; report lands on your Desktop | `node client/client.js --yes` (defaults to `38.107.232.39`) |
+| To run | Double-click `Run-Test.cmd`; report lands in the same folder | `node client/client.js --yes` (defaults to `38.107.232.39`) |
 
 Both are attached to every [GitHub Release](https://github.com/sdg-net/sdg-connection-test/releases/latest).
 Customer-facing download portal: <https://sdg.knowledgeondemand.net>
@@ -72,7 +72,8 @@ Customer-facing download portal: <https://sdg.knowledgeondemand.net>
 3. Open the extracted folder and double-click `Run-Test.cmd`. A console
    window opens.
 4. Wait ~3–4 minutes. The console shows the verdict and a JSON report
-   is written to your Desktop as `sdg-test-report-<timestamp>.json`.
+   is written into the same folder as `Run-Test.cmd`, named
+   `sdg-test-report-<timestamp>.json`.
 5. Attach that JSON file to your SDG support ticket.
 
 Read `README - START HERE.txt` inside the bundle for the same

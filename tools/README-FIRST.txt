@@ -16,8 +16,10 @@ HOW TO RUN IT
      DO NOT close it - it closes itself when finished.
   4. When it finishes you'll see a line like this:
             Report saved to:
-              C:\Users\<you>\Desktop\sdg-test-report-...json
-  5. Copy that file from your Desktop into a SDG support ticket.
+              <this folder>\sdg-test-report-...json
+     The report file appears RIGHT NEXT TO Run-Test.cmd in this same
+     folder.
+  5. Attach that .json file to your SDG support ticket.
 
   That's it. You're done.
 
