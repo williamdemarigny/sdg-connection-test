@@ -193,7 +193,7 @@
       <li>Right-click the downloaded zip and choose <strong>Extract All</strong>.</li>
       <li>Open the extracted folder. Read <code>README - START HERE.txt</code> if you'd like the same instructions in writing, then double-click <code>Run-Test.cmd</code>.</li>
       <li>A black console window opens. Wait about <strong>3-4 minutes</strong> &mdash; most of that is two 30+60 second &ldquo;NAT idle&rdquo; checks that have to wait the full interval to see whether your carrier's connection survives. Do not close the window; it closes itself when finished.</li>
-      <li>When it finishes, a file named <code>sdg-test-report-&lt;timestamp&gt;.json</code> appears on your Desktop. Attach that file to your SDG support ticket.</li>
+      <li>When it finishes, a file named <code>sdg-test-report-&lt;timestamp&gt;.json</code> appears in the same folder as <code>Run-Test.cmd</code>. Attach that file to your SDG support ticket.</li>
     </ol>
     <p>If Windows shows a &ldquo;protected your PC&rdquo; warning, click <strong>More info</strong> then <strong>Run anyway</strong>. The bundle is unsigned; the SHA256 checksum on the release page lets you verify it before running. Your public IP address is redacted in the report and on screen by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it (this requires running from a terminal &mdash; see the developer path below).</p>
 
