@@ -202,8 +202,9 @@
       <li>Install <a href="https://nodejs.org/en/download">Node.js 20 or later</a> (LTS is fine).</li>
       <li>Click <strong>Download source zip</strong> above and unzip it, or <code>git clone</code> the <a href="https://github.com/sdg-net/sdg-connection-test">repository</a>.</li>
       <li>Open a terminal (PowerShell, cmd, or bash) in the unzipped folder.</li>
-      <li>Run, substituting the host SDG gave you:
-        <pre><code>node client/client.js --host &lt;server-given-by-SDG&gt;</code></pre>
+      <li>Run:
+        <pre><code>node client/client.js --host 38.107.232.39</code></pre>
+        That IP is SDG's public connection-test server. If SDG support has given you a different endpoint, substitute it in place of <code>38.107.232.39</code>.
       </li>
       <li>Review the &ldquo;what this will do&rdquo; summary, press <code>y</code>, and wait. The default run takes about <strong>3-4 minutes</strong>.</li>
       <li>If SDG asked for a JSON report, re-run with <code>--json report.json</code> and send the file back. Your public IP is redacted in both the console output and the report by default; pass <code>--include-public-ip</code> only if SDG support specifically asks for it.</li>
