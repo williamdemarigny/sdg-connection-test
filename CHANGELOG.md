@@ -16,6 +16,37 @@ guaranteed.
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-05-10
+
+### Added
+- **`--host` defaults to the public SDG test endpoint (`38.107.232.39`).**
+  The source/developer path no longer requires a flag — `node
+  client/client.js` Just Works for the most common case (customer
+  diagnosing a connection issue against SDG's public server).
+  `--host <addr>` still overrides for side-by-side or off-server
+  testing, and the Windows easy-install bundle is unchanged: it still
+  reads `TARGET_HOST` from `config.txt` and passes it explicitly,
+  which means support can rotate the target by editing one line in
+  `config.txt` without rebuilding.
+
+### Fixed
+- **Easy-install report path under OneDrive Known Folder Move.**
+  `Run-Test.cmd` previously wrote the report to
+  `%USERPROFILE%\Desktop\sdg-test-report-<TS>.json`. On any Windows
+  account with OneDrive KFM enabled (the default for most modern
+  Microsoft-account signins), the real Desktop is at
+  `%USERPROFILE%\OneDrive\Desktop` and `%USERPROFILE%\Desktop` does
+  not exist — Node's `--json` open then failed with `ENOENT`, and
+  the customer lost the entire report after waiting 3–4 minutes for
+  the test to run. The launcher now writes the report into the same
+  folder as `Run-Test.cmd` itself (which is guaranteed to exist and
+  is where the user already is). `README - START HERE.txt` and the
+  top-level README updated to match.
+
+### Changed
+- Bumped `client/package.json` and `shared/package.json` versions to
+  1.2.1 to match the release tag.
+
 ## [1.2.0] — 2026-05-06
 
 ### Added
