@@ -1,13 +1,12 @@
 # SDG Connection Test
 
-A small client/server diagnostic for proving or disproving whether a
-specific ISP is blocking or throttling the UDP traffic that Space
-Engineers, Torch, and Steam depend on.
-
-Built in response to a real customer case: Space Engineers worked fine
-over a Verizon cellular hotspot and failed over T-Mobile 5G Home
-Internet, from the same laptop, against the same Torch server. We needed
-hard evidence rather than another round of "try a different DNS server".
+A comprehensive UDP and TCP diagnostic for Space Engineers, Torch, and
+Steam connectivity. The client probes every relevant port for
+reachability, loss rate, latency stats, and MTU behavior; runs a real
+Steam A2S query; pushes a bidirectional sustained game-shape stream;
+fingerprints NAT behavior, traffic policers and shapers, per-5-tuple
+shaping, and DPI on payload content. Results print to the console and,
+on request, to a JSON file suitable for attaching to a support ticket.
 
 This repository contains the **client** and the **shared protocol
 definitions** that both sides of the diagnostic speak. The server is
@@ -18,20 +17,69 @@ posture is documented in [`docs/SECURITY.md`](docs/SECURITY.md) and
 [`docs/PRIVACY.md`](docs/PRIVACY.md) so you can reason about what the
 server is permitted to do without needing its source.
 
+## What it tests
+
+### Baseline reachability (every run)
+
+- **Per-port UDP + TCP sweep** — reachability, packet loss, latency
+  statistics (min / avg / p95 / max / stddev), and MTU sweep at 1200 /
+  1400 / 1472 byte payloads against every port Space Engineers, Torch,
+  and Steam use.
+- **Real Steam A2S_INFO query** on UDP 27015 — full Steam protocol,
+  validates that the server is answering as a real Steam endpoint
+  would.
+- **Sustained game-shape traffic** — ~60 pps, 200-400 byte payloads,
+  10 seconds, **bidirectional by default**. Catches uplink-only
+  throttling that a downstream-only test is blind to.
+- **Optional real-server probe** — `--real-server <host:port>` sends
+  the same A2S query to the customer's actual Torch server for
+  side-by-side comparison with the SDG endpoint.
+
+### Phase 1 diagnostics (on by default, ~3-4 min total)
+
+| Test | What it diagnoses |
+| --- | --- |
+| NAT idle-timeout (30 + 60 s) | CGNAT idle-mapping eviction — the most common T-Mobile 5G Home symptom ("I get disconnected after a few minutes"). Pass `--full` for the longer 30 / 60 / 120 / 300 s ladder. |
+| NAT type classification | Cone vs symmetric NAT, via reflection probes on UDP 27016 + 27017. Tells you whether peer-to-peer needs a relay. |
+| Bidirectional sustained | Uplink-only throttling, invisible to a downstream-only sustained test. `--bidir up\|down\|both` (default `both`). |
+| Burst-vs-steady | Policer (token bucket — burst loss, steady fine) vs shaper (loss at both rates) vs random loss. |
+| Source-port fan-out | Per-5-tuple shaping or unlucky ECMP path: probes from 4 different source ports — diverging loss → per-flow discrimination. |
+| Payload-shape sensitivity | DPI by content fingerprint: same packet rate, three different payload patterns (game-shape, random, zero-fill) — diverging loss → DPI is making decisions on payload content. |
+
+### Free derived metrics (no extra packets)
+
+Two metrics extracted from the data the loss tests already collect, at
+no additional traffic cost:
+
+- **Loss-burst histogram** — runs of consecutive drops, bucketed
+  (1 / 2-4 / 5-9 / 10+). Distinguishes isolated drops from sustained
+  outages.
+- **Packet-reordering count** — out-of-order arrivals. SE's
+  interpolation stutters on reorder, so this is a real complaint
+  pattern even when loss is zero.
+
+### First-run capability probe
+
+Before the Phase 1 tests start, the client runs a small capability
+probe so v1.1+ tests skip cleanly with `SKIPPED (server too old)`
+against a v1.0.0 server rather than failing noisily. Reflected public
+IP is redacted by default in both the console output and the `--json`
+report; pass `--include-public-ip` to opt in.
+
 ## How it works
 
 1. The **server** (operator-deployed) listens on every TCP and UDP port
    SE, Torch, and Steam use. On UDP 27015 it answers real Steam
    A2S_INFO queries. On UDP 27016 it can push a game-shape traffic
-   stream (~60 pps, 200-400 byte payloads, 10 seconds) on demand.
-   Everything else is a plain echo for our small binary probe protocol.
-   The wire format is fully specified in
-   [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
-2. The **client** (in this repo) probes every (proto, port) pair for
-   reachability, loss rate, latency stats, and MTU behavior, does a
-   real Steam A2S query, runs the sustained game-shape test, and
-   optionally probes the customer's actual Torch server for comparison.
-   Results print to the console and, on request, to a JSON file.
+   stream on demand. UDP 27016 + 27017 also serve as capability-aware
+   reflection ports for the NAT-type test. Everything else is a plain
+   echo for the small binary probe protocol. The wire format is fully
+   specified in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+2. The **client** (in this repo) runs the test suite above against the
+   server. Results print to the console and, on request, to a JSON
+   file. The client opens no network connections except to the `--host`
+   you pass on the command line, and optionally to the `--real-server`
+   host.
 
 ## Repository layout
 
@@ -71,7 +119,7 @@ Customer-facing download portal: <https://sdg.knowledgeondemand.net>
 2. Right-click → **Extract All**.
 3. Open the extracted folder and double-click `Run-Test.cmd`. A console
    window opens.
-4. Wait ~3–4 minutes. The console shows the verdict and a JSON report
+4. Wait ~3-4 minutes. The console shows the verdict and a JSON report
    is written into the same folder as `Run-Test.cmd`, named
    `sdg-test-report-<timestamp>.json`.
 5. Attach that JSON file to your SDG support ticket.
@@ -106,38 +154,32 @@ indicates a problem; the client distinguishes ISP loss from server-side
 rate-limiting in the `RL` column so the limiter never causes a false
 positive against the ISP under test.
 
-### Diagnostics included in every default run
-
-Every default run includes six targeted tests for the harder cases —
-carrier NAT timeouts, symmetric NAT blocking peer-to-peer, uplink-only
-throttling, policer-vs-shaper fingerprinting, per-5-tuple shaping, and
-DPI by payload signature. Total runtime ~4 minutes; pass `--full` for
-the longer NAT-idle ladder (~10 minutes).
-
-| Test | What it diagnoses |
-| --- | --- |
-| NAT idle (30 + 60 s) | CGNAT idle-mapping eviction (the most common T-Mobile 5G Home symptom — "I get disconnected after a few minutes") |
-| NAT type | Symmetric vs cone NAT — tells you whether peer-to-peer needs a relay |
-| Bidirectional sustained (`both`) | Uplink-only throttling, which is invisible to a downstream-only sustained test |
-| Burst-vs-steady | Policer (burst loss, steady fine) vs shaper (loss at both rates) vs random loss |
-| Source-port fan-out | Per-5-tuple shaping or unlucky ECMP path: probes from 4 different source ports, diverging loss → per-flow discrimination |
-| Payload-shape sensitivity | DPI by content fingerprint: same packet rate with three different payload patterns; diverging loss → DPI is making decisions on payload content |
-
-Plus two metrics derived from the data the existing loss tests
-already collect, with no extra packets sent: a loss-burst histogram
-(runs of consecutive drops, bucketed) and a packet-reordering count
-(SE's interpolation stutters on reorder, so this is a real
-complaint pattern).
-
-The server-dependent tests (`nat-type` and `bidir up/both`)
+The server-dependent tests (`nat-type` and `bidir up`/`both`)
 gracefully degrade against a v1.0.0 server: the client probes for
 support and prints `SKIPPED (server too old)` if not present.
 Reflected public IP is redacted by default in both the console output
 and the `--json` report — pass `--include-public-ip` to opt in.
 
-To dial back: `--no-nat-idle`, `--no-nat-type`, `--no-burst`,
-`--no-source-fanout`, `--no-payload-shape`, `--bidir down`, or
-pass `--ports` to limit the per-port sweep.
+## Common flags
+
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--host <addr>` | `38.107.232.39` | Override the SDG public endpoint. |
+| `--json <file>` | (none) | Write a full JSON report to `<file>`. |
+| `--yes`, `-y` | prompt | Skip the "what this will do" confirmation. |
+| `--family <4\|6\|auto>` | `auto` | Force IPv4, IPv6, or let the OS pick. Use `4` on a v6-native network (e.g. T-Mobile 5G Home Internet w/ 464XLAT) if you suspect Happy-Eyeballs is masking the problem. |
+| `--ports <p1,p2,...>` | full matrix | Limit the per-port sweep to specific ports. |
+| `--real-server <host:port>` | (none) | A2S-query the customer's actual Torch server for side-by-side comparison. |
+| `--bidir <down\|up\|both>` | `both` | Sustained-test direction. |
+| `--duration <seconds>` | `10` | Override the sustained test duration (capped at 300 s). |
+| `--up-pps <n>` | `60` | Upstream rate when `--bidir != down`. Capped at 200 pps. |
+| `--nat-idle <s1,s2,...>` | `30,60` | Custom NAT-idle windows (max 600 s each). |
+| `--full` | off | Run the full NAT-idle ladder: 30 / 60 / 120 / 300 s (~10 min total). |
+| `--include-public-ip` | off | Don't redact the reflected source IP. |
+| `--no-sustained`, `--no-a2s`, `--no-nat-idle`, `--no-nat-type`, `--no-burst`, `--no-source-fanout`, `--no-payload-shape` | all on | Dial back individual tests. |
+
+`node client.js --help` prints the full option list with longer
+explanations.
 
 ## Auditing the client
 
@@ -156,3 +198,16 @@ three small files in `shared/`.
 For the source / developer install, you need **Node.js 20 or later**.
 The Windows easy-install bundle ships with a pinned Node.js 22 LTS
 runtime so end users don't need to install anything.
+
+## Origin
+
+This tool exists because of a real customer case: Space Engineers
+worked fine over a Verizon cellular hotspot and failed over T-Mobile
+5G Home Internet, from the same laptop, against the same Torch server.
+We needed hard evidence rather than another round of "try a different
+DNS server" — and the diagnostic surface documented above is what hard
+evidence looks like. CGNAT idle eviction, symmetric NAT, uplink-only
+throttling, policer-vs-shaper fingerprinting, per-5-tuple shaping, and
+DPI on payload content are all distinct failure modes that a naive
+"can I reach the port?" test misses. Catching them one by one is the
+job.
