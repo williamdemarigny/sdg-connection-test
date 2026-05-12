@@ -102,12 +102,12 @@ const PAYLOAD_SHAPE_PACKETS_EACH = 25;
 const NAT_IDLE_WINDOWS_DEFAULT = Object.freeze([30, 60, 120, 300]);
 // Reflection-padded probe size. The protocol requires a probe of >=60
 // bytes for reflection so the REFLECT_REPLY can be padded to match
-// without exceeding the inbound packet (anti-amplification).
+// the inbound packet size.
 const REFLECT_PROBE_BYTES = 64;
 // Burst-vs-steady policer test. Capped at 100 packets so we stay well
-// under the server's per-IP token bucket capacity (200) and don't
-// trip our own rate limiter; any RATE_LIMITED replies are subtracted
-// from "loss" so the SDG limiter never masquerades as an ISP policer.
+// under any reasonable server-side rate limit; any RATE_LIMITED
+// replies are subtracted from "loss" so server-side rate-limiting
+// never masquerades as an ISP policer.
 const BURST_PACKET_COUNT = 100;
 const STEADY_PACKET_COUNT = 100;
 const STEADY_INTERVAL_MS = 100;     // 10 pps — same as LOSS_INTERVAL_MS
@@ -448,8 +448,8 @@ function natTypeImpact(verdict) {
 
 // Compare burst loss vs steady loss to fingerprint the path's drop
 // behavior. Returns a verdict and a short explanation. Subtracts any
-// RATE_LIMITED replies from observed loss so the SDG server's own
-// per-IP rate limiter cannot masquerade as an ISP policer.
+// RATE_LIMITED replies from observed loss so server-side rate-limiting
+// cannot masquerade as an ISP policer.
 function interpretBurstVsSteady({ burst, steady }) {
   const safe = (r) => {
     if (!r) return null;
@@ -800,8 +800,7 @@ async function capabilityProbe({ host, port = CAPABILITY_PROBE_PORT, family = 4 
     });
     // Pad the probe to REFLECT_PROBE_BYTES so the server can fit the
     // CAPABILITIES bitmap (4 bytes at offset 36 = 40-byte reply) into a
-    // packet no larger than the inbound probe. Anti-amplification per
-    // docs/SECURITY.md.
+    // packet no larger than the inbound probe.
     const pkt = protocol.encode({
       type: protocol.TYPE.PROBE,
       nonce,
@@ -1007,9 +1006,9 @@ async function natTypeTest({ host, ports, nonce, family = 4 }) {
 // (so the SDG server's own bucket can never look like an ISP policer).
 //
 // Runs on UDP 27443 (baseline) by default to isolate the test from any
-// game-port-specific DPI / shaping. The single per-IP rate limiter
-// applies across ports anyway, so this only changes what kind of DPI
-// we expose ourselves to, not whether the server limiter fires.
+// game-port-specific DPI / shaping. Server-side rate-limiting (if any)
+// applies independently of port choice, so this only changes what kind
+// of DPI we expose ourselves to.
 async function burstVsSteadyTest({ host, port = BURST_PORT, nonce, family = 4 }) {
   // Use a fresh socket for each phase. Some stateful firewalls track
   // per-(src, dst, src_port) flow state, and a same-socket burst+steady
@@ -1386,7 +1385,7 @@ function a2sQuery({ host, port, family = 4 }) {
 //
 // Handshake:
 //   1. Send STREAM_BEGIN
-//   2. Server replies with STREAM_CHALLENGE carrying a 16-byte HMAC token
+//   2. Server replies with STREAM_CHALLENGE carrying a 16-byte token
 //      in the payload area (offset 36). Or, if we are rate limited,
 //      RATE_LIMITED.
 //   3. Send STREAM_CONFIRM with the token echoed back.
@@ -1580,11 +1579,9 @@ function sustainedTestV2({ host, port, nonce, durationMs, direction, upPps, fami
 
       if (decoded.type === protocol.TYPE.STREAM_CHALLENGE) {
         if (msg.length < protocol.TOKEN_OFFSET + protocol.TOKEN_SIZE) return;
-        // Echo the direction byte in the CONFIRM. The server folds
-        // `direction` into the HMAC input on the CHALLENGE side, so a
-        // CONFIRM with a mismatched direction byte (e.g. a captured
-        // down-token replayed against an up-stream request) fails
-        // verification and the stream never starts.
+        // Echo the direction byte in the CONFIRM. The server expects
+        // the BEGIN and CONFIRM to agree on direction; mismatched
+        // direction bytes are rejected.
         const confirm = protocol.encode({
           type: protocol.TYPE.STREAM_CONFIRM,
           nonce,

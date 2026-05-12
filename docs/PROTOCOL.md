@@ -67,43 +67,27 @@ Offset  Size  Field              Description
 
 ### RATE_LIMITED (type 8)
 
-Sent by the server when a source IP or the global bucket is empty. The
-packet is exactly HEADER_SIZE bytes (36), which is strictly smaller than
-any probe the client might have sent (up to 1400 bytes on the MTU
-test). This is intentional: a rate-limit response must be
-**de-amplifying** so that rate limiting itself cannot be abused as a
-reflection vector. The nonce and sequence fields echo the original
-probe so the client can match the response to a specific in-flight
-test rather than confusing it with ISP packet loss.
+Sent by the server when it declines to service a probe. The packet is
+exactly HEADER_SIZE bytes (36). The nonce and sequence fields echo the
+original probe so the client can match the response to a specific
+in-flight test rather than confusing it with ISP packet loss.
 
 ### STREAM_CHALLENGE (type 6) and STREAM_CONFIRM (type 7)
 
 Before the server will start a game-shape traffic stream on UDP 27016
-(which would otherwise be a large outbound amplifier) it requires proof
-that the client can actually receive packets at the source address it
-claims. The handshake is:
+it requires a challenge-response handshake:
 
 1. Client sends `STREAM_BEGIN` (type 3, 36 bytes).
 2. Server replies with `STREAM_CHALLENGE` (type 6) containing a 16-byte
-   HMAC token at offset 36. The token is
-   `HMAC-SHA256(secret, "stream" || ip || port || nonce || [direction] || bucket)`
-   truncated to 16 bytes, where `bucket = floor(now / 30_000)` and
-   `secret` is 32 random bytes generated at server start (never
-   persisted). The `direction` byte is included only when non-zero
-   (the up/both Phase 1 streams) — direction=down (the legacy v1.0.0
-   case) hashes WITHOUT the direction byte for full wire-compat.
-   Valid for the current and previous time bucket (30-60 seconds).
+   opaque token at offset 36. The token's contents and validity window
+   are server-internal.
 3. Client sends `STREAM_CONFIRM` (type 7) echoing the same 16-byte
    token at offset 36, with the same direction code in flags byte 6.
-4. Server verifies the token using the direction byte from the
-   STREAM_CONFIRM. A token issued for direction=down does NOT verify
-   against a STREAM_CONFIRM with direction=up — captured tokens
-   cannot be cross-replayed across directions. If valid AND the
-   per-IP/global stream concurrency caps allow it, the 10-second
-   stream of `STREAM_DATA` packets begins.
+4. If the token is accepted and the server has capacity, the
+   `STREAM_DATA` stream begins.
 
-A spoofed source address never sees step 2 and therefore cannot forge
-step 3, so the stream never starts for traffic that was not actually
+A client that did not receive step 2 cannot produce a valid step 3,
+so the stream is never started for traffic that was not actually
 solicited by the source host.
 
 **TCP framing.** TCP is a stream, so a TCP probe frame is prefixed with a
@@ -187,17 +171,15 @@ Offset  Size  Field
 60..    pad   zero padding to match the inbound probe size
 ```
 
-### Anti-amplification rule
+### Reply sizing
 
-A REFLECT_REPLY MUST be no larger than the probe that elicited it.
-The client pads its reflection-requesting PROBE to at least 60 bytes;
-the server pads (or truncates) the REFLECT_REPLY to the same size.
-This preserves the existing "echo replies are non-amplifying"
-invariant from `SECURITY.md` T1.
+A REFLECT_REPLY is no larger than the probe that elicited it. The
+client pads its reflection-requesting PROBE to at least 60 bytes; the
+server pads (or truncates) the REFLECT_REPLY to the same size.
 
 If a client requests reflection in a probe smaller than 60 bytes, the
-server MUST respond with RATE_LIMITED (36 bytes, de-amplifying)
-rather than truncate the reflection payload.
+server responds with RATE_LIMITED (36 bytes) rather than a truncated
+reflection payload.
 
 ### NAT-type classification
 
@@ -288,25 +270,13 @@ Offset  Size  Field
 64..    pad   zero
 ```
 
-### Server-side hardening required
+### Server-side behavior
 
-The server team must implement (specified for completeness; the
-client treats absence as "v1 server"):
-
-- A hard server-side duration cap on up-streams identical to the
-  existing 10 s downstream cap, **independent of any STREAM_STOP** —
-  if the client dies mid-test, server state must self-clean.
-- Per-IP up-stream concurrency limit (recommend: 1 active up-stream
-  per source IP, ~20 globally) so the test can't be used to flood
-  the server.
-- A separate token-bucket allocation for the up-stream window so the
-  test does not trip the existing per-IP rate limiter (200 capacity,
-  50 pps refill) against itself. The bucket is bound to the
-  STREAM_CONFIRM token and lasts only for the negotiated duration.
-- Replay protection: the STREAM_CHALLENGE HMAC input MUST include the
-  direction byte, so a captured downstream token cannot be replayed
-  to flip a downstream into an upstream/both stream the source IP
-  did not request.
+The server enforces appropriate caps on up-stream concurrency,
+duration, and total bytes per stream. Specific values and the token
+construction are server-internal. The client treats absence of
+STREAM_TALLY at end of test as "v1 server" and reports the test as
+skipped.
 
 ---
 
@@ -337,8 +307,8 @@ Offset  Size  Field
 40..    pad   zero
 ```
 
-The CAPABILITIES packet MUST be no larger than the inbound probe
-that elicited it (anti-amplification rule, same as REFLECT_REPLY).
+The CAPABILITIES packet is no larger than the inbound probe that
+elicited it (same sizing rule as REFLECT_REPLY).
 
 ### Forward compatibility
 
@@ -352,8 +322,7 @@ features only ever get added.
 
 This is the public Source Engine query protocol documented by Valve at
 <https://developer.valvesoftware.com/wiki/Server_queries>. We implement
-`A2S_INFO` with the December 2020 challenge requirement that Valve
-added specifically to block reflected-amplification DDoS abuse.
+`A2S_INFO` with Valve's December 2020 challenge requirement.
 
 **Step 1 — Request** (client -> server, 25 bytes):
 
@@ -367,10 +336,8 @@ FF FF FF FF 54 "Source Engine Query\0"
 FF FF FF FF 41 <u32 challenge>
 ```
 
-This reply is *smaller* than the request, so it is non-amplifying by
-construction. The 4-byte challenge is
-`HMAC-SHA256(secret, "a2s" || ip || bucket)` truncated to uint32,
-identical in spirit to the STREAM_CHALLENGE HMAC above.
+The 4-byte challenge is server-internal state; the client echoes it
+verbatim in the next request.
 
 **Step 3 — Request with challenge** (client -> server, 29 bytes):
 
@@ -383,8 +350,8 @@ binary reply beginning with the four-byte header `FF FF FF FF 49`,
 followed by protocol version, server name, map, folder, game, Steam
 AppID, player counts, bot count, server type, environment, visibility,
 VAC, version, and extra data flags. Only sent after a valid challenge
-is received, which bounds amplification at zero. Our test server
-returns fabricated but well-formed values:
+is received. Our test server returns fabricated but well-formed
+values:
 
 | Field         | Value                  |
 | ------------- | ---------------------- |

@@ -21,9 +21,9 @@ const TYPE = Object.freeze({
   STREAM_BEGIN:     3,  // client -> server
   STREAM_STOP:      4,  // client -> server
   STREAM_DATA:      5,  // server -> client
-  STREAM_CHALLENGE: 6,  // server -> client (16-byte HMAC token in payload)
+  STREAM_CHALLENGE: 6,  // server -> client (16-byte opaque token in payload)
   STREAM_CONFIRM:   7,  // client -> server (echoes token from CHALLENGE)
-  RATE_LIMITED:     8,  // server -> client, always 36 bytes (non-amplifying)
+  RATE_LIMITED:     8,  // server -> client, always 36 bytes
   // Phase 1 additions. All are backwards compatible: a v1 server that does
   // not implement them will simply not emit the new server->client types,
   // and will ignore the new client->server type. Capability negotiation
@@ -79,8 +79,7 @@ const CAP_BIDIRECTIONAL    = 1 << 1;
 const CAP_NAT_IDLE_AWARE   = 1 << 2;  // informational; client doesn't gate
 
 // REFLECT_REPLY payload layout, at offset 36. Total 24 bytes; the reply
-// itself is padded to match the inbound probe size so reflection cannot
-// be abused as an amplifier (see docs/SECURITY.md).
+// itself is padded to match the inbound probe size.
 //
 //   36..36   af          1 = IPv4, 2 = IPv6
 //   37..37   reserved    must be 0

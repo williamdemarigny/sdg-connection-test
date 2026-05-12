@@ -50,7 +50,7 @@ for Jest / Mocha / Vitest for.
 ```
 client/                zero-dep diagnostic client (single file)
 shared/                shared modules + tests
-docs/                  PROTOCOL, TRANSPARENCY, SECURITY, PRIVACY
+docs/                  PROTOCOL, TRANSPARENCY, PRIVACY
 LICENSE                MIT
 CONTRIBUTING.md        this file
 CHANGELOG.md           Keep-a-Changelog format
@@ -58,8 +58,9 @@ README.md
 ```
 
 The server implementation is operator-internal and not part of this
-repository. Its security model and behavior are documented in
-[`docs/SECURITY.md`](docs/SECURITY.md) and [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+repository. The wire protocol it speaks is documented in
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md); server hardening details are
+not published.
 
 ## Running tests
 
@@ -96,9 +97,6 @@ server. To add an entry:
    table) and §3 (host ufw block on the VM) so deployers see the new
    port immediately. The runbook is operator-internal; coordinate with
    the SDG ops team if you don't have access.
-4. Update [`docs/SECURITY.md`](docs/SECURITY.md) only if the new port
-   has hardening implications (e.g. it speaks a non-trivial protocol or
-   exposes a new amplifier).
 
 Server-side handling for new ports is operator-internal — the server
 implementation is not in this repo. Coordinate with the SDG ops team
@@ -115,8 +113,8 @@ behavior is documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
   extract a peer module. The existing files were chosen at sizes the
   reader can hold in their head.
 - No comments that re-state the code. Comments explain the *why* —
-  protocol references, threat-model rationale, surprising invariants.
-  The existing files are the style guide.
+  protocol references, surprising invariants, design rationale. The
+  existing files are the style guide.
 
 ## Pull requests
 
@@ -127,8 +125,7 @@ behavior is documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
    `shared/`, ~50% on `client/` (CLI orchestration is covered by
    integration; pure functions are covered by units).
 4. Update relevant docs in the same PR. A code change that contradicts
-   `PROTOCOL.md` or `SECURITY.md` is not done until those docs are
-   updated.
+   `PROTOCOL.md` is not done until that doc is updated.
 5. Don't add a `CHANGELOG.md` entry yourself; maintainers add the entry
    when cutting a release so the format stays consistent.
 6. CI must be green. The `zero-dep-guard` job in particular is

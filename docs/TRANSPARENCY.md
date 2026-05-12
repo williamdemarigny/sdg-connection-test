@@ -188,9 +188,8 @@ transparency, and a tool that cannot be audited honestly is worse than no
 tool at all.
 
 The server source is operator-internal — what the server is permitted to
-do is bounded by the protocol in [PROTOCOL.md](./PROTOCOL.md) and the
-defenses described in [SECURITY.md](./SECURITY.md). Nothing the server
-sends back can affect your machine beyond the response packets to probes
-the client itself sent. The client is the only side of this conversation
-running in your environment, and that is the side we encourage you to
-audit.
+do is bounded by the protocol in [PROTOCOL.md](./PROTOCOL.md). Nothing
+the server sends back can affect your machine beyond the response
+packets to probes the client itself sent. The client is the only side
+of this conversation running in your environment, and that is the side
+we encourage you to audit.

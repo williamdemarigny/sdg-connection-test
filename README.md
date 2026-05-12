@@ -12,10 +12,10 @@ This repository contains the **client** and the **shared protocol
 definitions** that both sides of the diagnostic speak. The server is
 operator-deployed; this repo contains everything you need to install
 the client, audit what it does on your machine, and run it against an
-operator-supplied test endpoint. The server's security and privacy
-posture is documented in [`docs/SECURITY.md`](docs/SECURITY.md) and
-[`docs/PRIVACY.md`](docs/PRIVACY.md) so you can reason about what the
-server is permitted to do without needing its source.
+operator-supplied test endpoint. What the operator-deployed server
+may log about your connection is documented in
+[`docs/PRIVACY.md`](docs/PRIVACY.md). The server implementation and
+its hardening details are operator-internal.
 
 ## What it tests
 
@@ -89,7 +89,6 @@ shared/ports.js          single source of truth for the port matrix
 shared/protocol.js       binary packet format, shared by client + server
 shared/netUtils.js       small IP / dgram helpers shared by client + server
 docs/PROTOCOL.md         byte-level wire protocol reference
-docs/SECURITY.md         server-side security model and hardening
 docs/PRIVACY.md          what the operator-deployed server may log
 docs/TRANSPARENCY.md     for security-conscious players
 tools/build-bundle.py    builds the Windows easy-install zip

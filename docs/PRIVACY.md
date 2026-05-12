@@ -81,15 +81,10 @@ server's session log records this in the existing `counts` field
 (under a new `udp:27016:up` key) and a new `streamsTallied` count.
 No new fields beyond a per-port counter and the up/down direction.
 
-The server is required to enforce a duration cap, a per-IP up-stream
-concurrency cap, and a separate token-bucket allocation for the test
-window so it cannot be abused as a flood vector. See
-[`docs/SECURITY.md`](SECURITY.md) for the full hardening list.
-
 ## How long it is retained
 
-The log file is hard-capped at 50 MB. When that cap is exceeded the log
-is rotated:
+The log file is size-capped. When the cap is exceeded the log is
+rotated:
 
 ```
 sessions.log      → sessions.log.old   (overwriting any previous .old)
@@ -97,12 +92,12 @@ sessions.log      ← (empty, new file)
 ```
 
 This means the server keeps **at most two generations of logs at any
-time**, with a hard ceiling of approximately 100 MB on disk. The previous
-`.old` file is deleted on each rotation. There is no archival, no off-host
-shipping, and no long-term store.
+time** with a bounded disk footprint. The previous `.old` file is
+deleted on each rotation. There is no archival, no off-host shipping,
+and no long-term store.
 
 For deployments expecting heavy traffic, the operator should either
-increase the rotation cap or — preferably — wire up a host-side cron that
+adjust the rotation cap or — preferably — wire up a host-side cron that
 archives `sessions.log.old` before the next rotation overwrites it. Any
 such archival is the operator's responsibility and is OUTSIDE the scope
 of this notice.

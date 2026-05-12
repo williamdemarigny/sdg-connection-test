@@ -141,7 +141,7 @@ backwards-compatible with v1.0.0 servers, which is why we kept
 VERSION=1):
 
 - `TYPE.REFLECT_REPLY` (9) — server echoes observed source IP/port,
-  padded to inbound probe size for non-amplification.
+  padded to inbound probe size.
 - `TYPE.STREAM_DATA_UP` (10) — client→server up-stream payload.
 - `TYPE.STREAM_TALLY` (11) — server→client end-of-stream tally,
   sent 3× for loss tolerance.
@@ -154,10 +154,6 @@ VERSION=1):
   zero. On `PROBE`: high bit (`FLAG_REFLECT`, `0x80`) opts into
   reflection. On `STREAM_BEGIN` and `STREAM_CONFIRM`: low byte
   carries the direction code (0=down, 1=up, 2=both).
-- `STREAM_CHALLENGE` HMAC input now includes `direction` when
-  `direction != 0`. A captured down-token cannot be replayed in
-  an up-direction CONFIRM. The `direction == 0` path is byte-
-  identical to the v1.0.0 HMAC for full wire compat.
 
 CLI additions:
 - `--full` extends the NAT idle ladder to 30/60/120/300 s.
@@ -174,20 +170,6 @@ CLI additions:
 - Default run includes the four Phase 1 tests. Use `--no-*` flags
   to dial back, or `--ports` to limit the per-port sweep.
 - Test suite grew from 81 (v1.0.0) to 138 client + 208 server tests.
-
-### Security
-- Anti-amplification invariant extended to the new types: every
-  server reply (REFLECT_REPLY, CAPABILITIES, STREAM_TALLY) is
-  bounded to ≤ inbound probe size. Reflection probes < 60 bytes
-  and capability probes < 40 bytes get RATE_LIMITED (36 bytes,
-  de-amplifying) instead of a truncated reply.
-- Up-stream concurrency cap (1 per source IP, 20 global), 30 MB
-  byte cap per stream, hard 300 s server-side timer independent
-  of `STREAM_STOP` — server state cleans itself up if the client
-  dies mid-test.
-- Direction folded into the STREAM_CHALLENGE HMAC: a token issued
-  for `direction=down` does not verify against a `direction=up`
-  CONFIRM. Documented in [`docs/SECURITY.md`](docs/SECURITY.md) T1.
 
 ### Privacy
 - JSON report redacts the host portion of any reflected public IP
@@ -235,29 +217,16 @@ First public release.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — acceptable use, the
   zero-dep rule, repo layout, and the port-addition recipe.
 - [`docs/PRIVACY.md`](docs/PRIVACY.md) — what the session log
-  collects, the 50 MB / two-generation retention ceiling, GDPR
-  posture, operator responsibilities.
+  collects, retention posture, GDPR considerations, and operator
+  responsibilities.
 - `docs/FIELD-TEST-PROTOCOL.md` (operator-internal) — the methodology
   for the carrier-comparison field test (5 trials per carrier × 3 time
   windows × negative-control target × traceroute capture × server-side
   correlation × MTU sweep).
 
 ### Changed
-- Deployment doc restructured (operator-internal). The recommended
-  path is now a dedicated single-homed **Ubuntu Server 24.04 LTS** VM
-  in the DMZ (24.04.3 or newer), provisioned manually with whichever
-  hypervisor tooling fits your workflow. This avoids the
-  asymmetric-routing trap on multi-homed hosts (Linux routes egress by
-  destination, not by inbound interface; a host-networked container
-  on a multi-homed host silently sends replies out the wrong NIC).
-  VM specs: 1 vCPU / 2 GB RAM (1 GB minimum) / 8 GB disk / single NIC
-  on the DMZ VLAN. The 2 GB recommendation reflects the install +
-  steady-state + load budget — 512 MB is over-budget at idle once
-  Docker daemon and the
-  256 MB-capped container are added.
-  Earlier draft revisions documented Hyper-V provisioning via the
-  `taliesins/hyperv` Terraform provider; that snippet was removed in
-  favor of hypervisor-agnostic VM-spec guidance.
+- Deployment doc restructured (operator-internal). Specifics are not
+  published.
 - `client/client.js` wraps `main()` in `if (require.main === module)`
   and exports `parseArgs`, `stats`, `filterPorts`, and `fmt` so the
   file can be required from tests without spawning a CLI run.
@@ -293,24 +262,19 @@ First public release.
 ### Fixed
 - (none — first release)
 
-### Security
-- Server applies `normalizeIp()` to incoming source addresses before
-  keying the per-IP rate limiter, the ASN lookup, and the session
-  log. With a v4-only deployment this is a no-op; it prevents a
-  future dual-stack deployment from having the same client occupy
-  two distinct rate-limit buckets depending on whether a packet
-  arrived as v4 or as v4-mapped v6.
-- Defensive hardening from a security review of the client:
-  - `--real-server` now uses a strict host:port parser that supports
-    bracketed IPv6 forms (e.g. `[2001:db8::1]:27015`) and rejects
-    ambiguous unbracketed IPv6, missing port, non-numeric port, and
-    out-of-range ports with specific error messages — replacing a
-    naive `String.split(':')` that shattered on IPv6 literals and
-    silently turned a missing port into NaN.
-  - `--duration` is capped at 300 seconds. The sustained-test's
-    sequence-number deduplication set previously grew without bound
-    under absurd `--duration` values; the cap is well above any
-    legitimate diagnostic use.
+### Client hardening
+- Server applies `normalizeIp()` to incoming source addresses so the
+  same client is keyed consistently across v4 and v4-mapped v6.
+- `--real-server` now uses a strict host:port parser that supports
+  bracketed IPv6 forms (e.g. `[2001:db8::1]:27015`) and rejects
+  ambiguous unbracketed IPv6, missing port, non-numeric port, and
+  out-of-range ports with specific error messages — replacing a
+  naive `String.split(':')` that shattered on IPv6 literals and
+  silently turned a missing port into NaN.
+- `--duration` is capped at 300 seconds. The sustained-test's
+  sequence-number deduplication set previously grew without bound
+  under absurd `--duration` values; the cap is well above any
+  legitimate diagnostic use.
 
 [Unreleased]: https://github.com/sdg-net/sdg-connection-test/compare/v1.2.0...HEAD
 [1.2.0]: https://github.com/sdg-net/sdg-connection-test/releases/tag/v1.2.0
